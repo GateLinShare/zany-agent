@@ -1,0 +1,18 @@
+[project]
+name = "deepagents-mini-agent"
+version = "0.1.0"
+description = "Mini conversational coding agent on deepagents"
+requires-python = ">=3.11,<4.0"
+dependencies = [
+    "langchain>=1.4",
+    "langchain-anthropic>=1.7",
+    "deepagents>=0.7",
+    "mcp>=2.0,<3.0",
+    "croniter>=2.0",
+    "textual>=1.0",
+]
+
+# UV_PIP_INDEX_URL 只管 uv pip;uv run/lock 解析走这里,否则连 pypi.org 会很慢
+[[tool.uv.index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
