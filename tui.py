@@ -15,7 +15,6 @@ import queue
 import sys
 import time
 
-from langchain_core.messages import HumanMessage
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
@@ -25,16 +24,16 @@ from textual.screen import ModalScreen
 from textual.widgets import Footer, OptionList, RichLog, Static, TextArea
 from textual.widgets.option_list import Option
 
-from agent import TOOLS, build_agent, text_of
-from cron_jobs import start_scheduler
-from mcp_tools import config_stamp
-from sessions import (
+from agent import build_agent, text_of
+from core.mcp import config_stamp
+from core.sessions import (
     SESSIONS_DIR,
     list_sessions,
     load_session,
     new_session_file,
     save_session,
 )
+from cron_jobs import start_scheduler
 
 
 class ChatPrompt(TextArea):
@@ -150,7 +149,7 @@ class ChatApp(App):
 
     def on_mount(self) -> None:
         log = self.query_one("#chatlog", RichLog)
-        log.write(f"[bold]deepagents mini-agent[/] (tools: {', '.join(TOOLS)})")
+        log.write(f"[bold]mini-agent[/] (tools: {', '.join(self.agent.tools)})")
         log.write(
             f"[dim]工作目录: {self.workdir} · /resume 恢复会话 · exit 退出[/dim]\n"
         )
@@ -211,46 +210,30 @@ class ChatApp(App):
                     self.log_write, f"[dim](MCP 重载失败,沿用旧配置: {e})[/dim]"
                 )
         try:
-            inputs = {"messages": self.state["messages"] + [HumanMessage(text)]}
+            msgs = self.state["messages"] + [{"role": "user", "content": text}]
             self.call_from_thread(self.live_start)
             think_buf: list[str] = []
             text_buf: list[str] = []
-            pending_args: dict[str, str] = {}  # tool_call_id -> 累积的入参 json
-            last_tc_id = ""  # 续片没有 id, 归到最近见过的 id
-            final = None
-            # messages 模式逐 token 出流, values 模式取最终 state
-            for mode, payload in self.agent.stream(inputs, stream_mode=["messages", "values"]):
-                if mode == "values":
-                    final = payload
-                    continue
-                chunk = payload[0]
-                ctype = getattr(chunk, "type", "")
-                if ctype == "tool":  # 工具结果: 只打一行摘要, 不刷全量内容
-                    result = text_of(chunk).strip().replace("\n", " ")
+            # 核心事件流: ("thinking",d) / ("text",d) / ("tool_start",id,name)
+            #            / ("tool_result",id,name,input_json,output)
+            for ev in self.agent.stream(msgs):
+                kind = ev[0]
+                if kind == "thinking":
+                    think_buf.append(ev[1])
+                elif kind == "text":
+                    text_buf.append(ev[1])
+                elif kind == "tool_result":
+                    _, _id, name, input_json, output = ev
+                    result = output.strip().replace("\n", " ")
                     self.call_from_thread(
                         self.log_write,
-                        f"[dim]🔧 {chunk.name}({pending_args.get(chunk.tool_call_id, '')[:100]})"
+                        f"[dim]🔧 {name}({input_json[:100]})"
                         f" → {result[:80]}{'…' if len(result) > 80 else ''}[/dim]",
                     )
-                    continue
-                # AI 块: 累积工具入参 + 思考/正文
-                for tc in getattr(chunk, "tool_call_chunks", None) or []:
-                    if tc.get("id"):
-                        last_tc_id = tc["id"]
-                    pending_args[last_tc_id] = pending_args.get(last_tc_id, "") + (tc.get("args") or "")
-                th, tx = self._chunk_text(chunk)
-                if not th and not tx:
-                    continue
-                if th:
-                    think_buf.append(th)
-                if tx:
-                    text_buf.append(tx)
                 self.call_from_thread(self.live_update, "".join(think_buf), "".join(text_buf))
-            if final is None:
-                raise RuntimeError("stream 未返回最终状态")
-            self.state["messages"] = final["messages"]
-            # 定稿取最终 state 的最后一条(流里可能混着工具调用前的中间叙述)
-            reply = text_of(self.state["messages"][-1])
+            self.state["messages"] = msgs
+            # 定稿取最后一条: GLM 中间轮只有 thinking+tool_use, 正文一定在末条
+            reply = text_of(msgs[-1])
         except Exception as e:
             self.call_from_thread(self.live_end, "", err=str(e))
             self.call_from_thread(self.turn_finished)
@@ -259,21 +242,11 @@ class ChatApp(App):
         if self.sess_path is None:
             self.sess_path = new_session_file()
         try:
-            save_session(self.sess_path, self.state)
+            save_session(self.sess_path, self.state["messages"])
         except Exception as e:
             self.call_from_thread(self.log_write, f"[dim](会话保存失败: {e})[/dim]")
         self.call_from_thread(self.live_end, reply)
         self.call_from_thread(self.turn_finished)
-
-    @staticmethod
-    def _chunk_text(chunk) -> "tuple[str, str]":
-        """从流式 chunk 里抠出 (思考, 正文); 工具调用块返回空。"""
-        c = getattr(chunk, "content", "")
-        if isinstance(c, str):
-            return "", c
-        th = "".join(b.get("thinking", "") for b in c if isinstance(b, dict) and b.get("type") == "thinking")
-        tx = "".join(b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text")
-        return th, tx
 
     # ---- 流式显示 ----
 
@@ -324,9 +297,9 @@ class ChatApp(App):
                 t = text_of(m).strip()
                 if not t:
                     continue
-                if m.type == "human":
+                if m["role"] == "user":
                     self.chat_line("user", t)
-                elif m.type == "ai":
+                elif m["role"] == "assistant":
                     self.chat_line("ai", t)
             self.log_write("")
 
@@ -377,11 +350,12 @@ def _headless(argv: list[str]) -> None:
         else:
             # id 不存在 = 以该 id 新开会话, 本轮结束后落盘, 后续可复用
             print(f"(新会话 {sess_path.stem})", file=sys.stderr)
-    state = agent.invoke({"messages": messages + [HumanMessage(prompt)]})
-    print(text_of(state["messages"][-1]))
+    messages = messages + [{"role": "user", "content": prompt}]
+    agent.invoke(messages)
+    print(text_of(messages[-1]))
     if sess_path is None:
         sess_path = new_session_file()
-    save_session(sess_path, state)
+    save_session(sess_path, messages)
     print(f"(session: {sess_path.stem})", file=sys.stderr)
 
 

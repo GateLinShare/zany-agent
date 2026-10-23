@@ -1,12 +1,10 @@
 [project]
-name = "deepagents-mini-agent"
+name = "mini-agent"
 version = "0.1.0"
-description = "Mini conversational coding agent on deepagents"
+description = "Mini coding agent, 无框架手写核心 (core/)"
 requires-python = ">=3.11,<4.0"
 dependencies = [
-    "langchain>=1.4",
-    "langchain-anthropic>=1.7",
-    "deepagents>=0.7",
+    "anthropic>=0.40",
     "mcp>=2.0,<3.0",
     "croniter>=2.0",
     "textual>=1.0",
