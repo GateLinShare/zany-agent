@@ -18,7 +18,6 @@ import tempfile
 from pathlib import Path
 
 from agent import build_agent, text_of
-from langchain_core.messages import HumanMessage
 
 EVALS_FILE = Path(__file__).resolve().parent / "evals" / "cases.jsonl"
 
@@ -64,10 +63,12 @@ def main() -> None:
                 f.write_text(content, encoding="utf-8")
             agent = build_agent(str(workdir))
             try:
-                state = agent.invoke({"messages": [HumanMessage(c["query"])]})
-                answer = text_of(state["messages"][-1])
+                msgs = [{"role": "user", "content": c["query"]}]
+                agent.invoke(msgs)
+                answer = text_of(msgs[-1])
                 n_tools = sum(
-                    1 for m in state["messages"] if getattr(m, "tool_calls", None)
+                    1 for m in msgs if m["role"] == "assistant" and isinstance(m["content"], list)
+                    for b in m["content"] if isinstance(b, dict) and b.get("type") == "tool_use"
                 )
                 fails = run_checks(c, workdir, answer, n_tools)
             except Exception as e:
