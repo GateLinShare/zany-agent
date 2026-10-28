@@ -12,7 +12,7 @@ tui.py            UI 层:Textual TUI(rich 渲染)/ 会话恢复 / cron / 无头�
 cron_jobs.py      cron 定时任务:调度线程只入队,主循环消费后当普通输入跑一轮
 eval/main.py      评测:evals/cases.jsonl 用例 → 临时目录跑 agent → 断言判分
 core/
-  loop.py         ★ agent loop:流式聚合 → 派发工具 → 回填 → 循环(约 265 行)
+  loop.py         ★ agent loop:流式聚合 → 派发工具 → 回填 → 循环(约 280 行)
   model.py        模型薄封装:流式 SSE 事件原样转发 / 非流式补全(压缩用)
   tools.py        Tool 统一形态 + 五内置工具(ls/read_file/write_file/edit_file/execute)
   subagent.py     task 子代理(递归在构造处掐死)
@@ -138,6 +138,7 @@ class Tool:
     description: str
     input_schema: dict
     run: Callable[[dict], str]   # 入参 dict → 结果文本;错误也返回文本
+    ledger: Any | None = None    # 行为熔断账本(仅内置工具);压缩后由 loop 清空
 ```
 
 内置工具、MCP 工具、task 子代理全部归一成这一个 dataclass,loop 层完全不区分
@@ -147,19 +148,29 @@ class Tool:
 
 | 工具 | 作用 | 实现要点 |
 |---|---|---|
-| `ls` | 列目录(以工作目录为根) | 类型 + 文件大小 |
-| `read_file` | 读文件,大文件分页 | offset/limit,带行号;截断时提示剩余行数,引导模型翻页 |
-| `write_file` | 整文件覆盖写 | 自动建父目录 |
-| `edit_file` | 字符串替换,支持单处或多处(`edits` 数组一次改多处) | 所有 edit 对原始全文定位、按位置从后往前套用 + 重叠检测;精确失配先归一化重试(NFKC/智能引号/行尾空白),回写只动覆盖到的行;单处旧格式 `old_string/new_string` 兼容保留 |
-| `execute` | 真实 shell | shell=True,cwd=workdir,timeout 默认 1200s(可按命令覆盖),stdout+stderr+exit code |
+| `ls` | 列目录(以工作目录为根) | 类型 + 文件大小;`LS_MAX`(500 条)封顶,超了提示换更具体的 path |
+| `read_file` | 读文件,大文件分页 | offset/limit,带行号;截断提示带精确续读参数(`用 offset=100 继续读`);同参数重读返回 stub 指回早前结果(不重复回显) |
+| `write_file` | 整文件覆盖写 | 自动建父目录;落盘后失效该文件的读去重/连败记录 |
+| `edit_file` | 字符串替换,支持单处或多处(`edits` 数组一次改多处) | 所有 edit 对原始全文定位、按位置从后往前套用 + 重叠检测;精确失配先归一化重试(NFKC/智能引号/行尾空白),回写只动覆盖到的行;BOM 剥离 + CRLF 透明还原(匹配在 LF 空间,回写按原行尾);同路径连败 ≥3 次附升级提示(重读/换 write_file);单处旧格式兼容保留 |
+| `execute` | 真实 shell | shell=True + `start_new_session`(POSIX),cwd=workdir,timeout 默认 `EXEC_TIMEOUT`(1200s,可按命令覆盖);超时 kill 整个进程组并回传超时前已产出的输出;stdout+stderr+exit code |
 
-### 4.3 三个防线
+### 4.3 四个防线
 
 1. **路径越界防线**:`_resolve()` 把 `/agent.py` 解析成 `workdir/agent.py`
    (虚拟根),用 `Path.is_relative_to` 拒绝 `../` 越出工作目录。
-2. **输出截断防线**:单工具结果 `MAX_OUTPUT`(200000 字符)封顶,超长截断并告知
-   全长、提示分页。上下文管理第一层:别让一个 `cat 大文件` 撑爆窗口。
-3. **执行超时防线**:execute 默认 1200s,防死循环命令挂死整个轮次。
+2. **输出截断防线**:单工具结果 `MAX_OUTPUT`(200000 字符)封顶;截断方向学
+   hermes **保头 40% + 保尾 60%**(错误常在前头,最新输出在后头),execute 超长
+   时全量落盘 `/tmp/agent-exec-*.log` 并把路径告诉模型,想看全文可再读。
+3. **执行超时防线**:execute 默认 1200s;超时用 `os.killpg` 杀整个进程组
+   (只杀 shell 会残留孙子进程孤儿),并回传超时前的部分输出(hermes 语义:
+   超时不代表一无所获)。
+4. **行为熔断防线**(`_Ledger`,hermes file_tools 防循环语义的简化版):每个
+   agent 一份账本,记三类循环 —— ①同参数重复 read → 返回 stub 指回早前结果;
+   ②同路径 edit 连败 ≥3 次 → 附"停止变体重试,重读原文/换 write_file";
+   ③同一条 execute 命令连跑 ≥3 次 → 提醒"结果大概率不变"。都是提示不是
+   阻断 —— 把"你在循环里"这个元信息喂给模型,让它自己改行为。**上下文压缩
+   后由 `loop.reset_tool_ledger()` 清空**(摘要会改写掉旧 read 结果,去重
+   stub 那时会说谎)。
 
 ### 4.4 task 子代理(core/subagent.py)
 
@@ -272,6 +283,6 @@ cat prompt.txt | uv run tui.py -p    # prompt 走 stdin
 
 ## 10. 一句话总结
 
-协议只有一套(Anthropic 原生消息),循环只有一个(265 行的 `stream()`),
+协议只有一套(Anthropic 原生消息),循环只有一个(280 行的 `stream()`),
 工具只有一种形态(Tool dataclass)。框架消失后,agent 的全部复杂度 —— 聚合、
 派发、回填、压缩、打断、记账 —— 都是看得见摸得着的普通 Python。

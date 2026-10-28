@@ -32,7 +32,8 @@ core/
 | **虚拟根** | 文件工具以 workdir 为虚拟根（`/agent.py` = `workdir/agent.py`），execute 是真实 shell；规则写进 SYSTEM_PROMPT 不做路径重写 |
 | **账本当场接** | 真实 usage 只在流式聚合时能拿到（message_start/message_delta），聚合时顺手记账；展示用真实值，est 粗估只做压缩触发兜底 |
 | **压缩是 postflight** | 对话完（每轮响应后）用真实 prompt_tokens 判定触发（hermes 语义）；防抖（降幅<10%连续两次停）和熔断（摘要失败即停）不可拆，防抖必须同口径 est vs est |
-| **MCP 快速认输** | pypi 不通的环境里 uvx 会卡几分钟：probe 整体 wait_for 15s、工具调用 60s，超时跳过；stdio 子进程 stderr 收 devnull（MCP_STDERR=1 透传）；TUI 界面先起、MCP 后台补（build_agent(with_mcp=False) + add_tools），except 不写 BaseException 防 Ctrl-C 被吞 |
+| **MCP 快速认输** | pypi 不通的环境里 uvx 会卡几分钟:probe 整体 wait_for 15s、工具调用 60s,超时跳过;stdio 子进程 stderr 收 devnull(MCP_STDERR=1 透传);TUI 界面先起、MCP 后台补(build_agent(with_mcp=False) + add_tools),except 不写 BaseException 防 Ctrl-C 被吞 |
+| **工具防爆层** | 截断保头 40%+尾 60%(错误在头、新输出在尾)、execute 超长全量落盘给路径、ls/read 上限提示带精确值、edit BOM/CRLF 透明;行为熔断账本 `_Ledger`(重复读去重/edit 连败升级/同命令警告)挂在 Tool.ledger,压缩后由 `loop.reset_tool_ledger()` 清空 -- 都是提示不是阻断,把"你在循环里"喟给模型 |
 | **.env 随仓库走** | 用户明确要求：内网私有仓库，.env(含密钥)直接提交，方便多机部署；不要往 .gitignore 加 .env、不要 git rm --cached .env（曾自作主张被纠正） |
 
 常用命令：
@@ -109,7 +110,7 @@ uv run eval/main.py [name]      # 评测(用例在 evals/cases.jsonl)
 
 ## 3. 后续参考入口
 
-- 想改 loop / 压缩 / 工具行为 → 先读 `docs/architecture.md`
+- 想改 loop / 压缩 / 工具行为 → 先读 `docs/architecture.md`；工具层差距与优化清单 → `docs/tools-comparison.md`（pi/hermes 逐工具对比 + 按性价比清单，2025-XX 排期用）
 - 想看 edit 模糊匹配的完整原版 → `/data01/tsn/code/pi/packages/coding-agent/src/core/tools/edit-diff.ts`
 - 想对比"带框架的同一套能力" → `/data01/tsn/code/deepagents/libs/deepagents/deepagents/`
 - 架构问答口径（面试/评审）→ `docs/interview-v2.md`

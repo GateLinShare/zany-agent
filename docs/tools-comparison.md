@@ -51,18 +51,18 @@
 | 检索 | 无 grep/glob(教模型用 execute+rg) | grep/find 默认关，系统提示自动加"用 bash 做 ls/rg/find"规则 | search_files 内置(rg 优先) |
 | 防循环 | 无 | grep 100 match 即 kill 子进程 | **同参数连搜 4 次直接 BLOCK**("结果没变，停止重搜") |
 
-## 三、优化清单(按性价比排序)
+## 三、优化清单(1-7 全部已实施, 行为验证 24/24 + eval 4/4)
 
-| # | 优化 | 学谁 | 现状问题 | 代价 |
-|---|---|---|---|---|
-| 1 | **execute 截断改"保头 40% + 保尾 60%"，超长全量落盘临时文件、给模型路径** | hermes(`terminal_tool.py:2710`) / pi(`bash.ts:344`) | 现在**保头丢尾**(tools.py:44)——编译错误/测试失败摘要几乎都在输出尾部，被截掉后模型只能瞎猜或重跑命令；且截断提示"可用 offset/limit 分页"对 execute 输出无意义(没有分页工具) | ~15 行 |
-| 2 | **read_file/ls 续读提示可操作化**：`用 offset=100 继续读`带精确参数值 | pi(`read.ts:190`) | 现在只说"用 offset 继续读"，模型要自己算 offset；带值的提示直接降低试错 | 1 行 |
-| 3 | **ls 加条目上限**(如 500 条 + "还有 N 项，用更具体的 path") | pi(`ls.ts`) | 大目录(如 node_modules、数据集目录)一次列爆上下文，我们连 MAX_OUTPUT 都没过 | ~5 行 |
-| 4 | **edit BOM/CRLF 透明处理**：剥 BOM、统一 LF 匹配、按原行尾风格回写 | pi(`edit-diff.ts:11-25`) | CRLF 仓库里 edit 会把全文行尾改成 LF( diff 噪音爆炸)；BOM 文件首行永远匹配不上 | ~15 行 |
-| 5 | **行为熔断**：同文件 read 重复去重、edit 连败 3 次给升级提示、execute 同命令连跑 N 次警告 | hermes(`file_tools.py:866,1877`) | 模型陷入重复调用循环时只能靠 turn_limit 兜底；hermes 用一个计数字典把"你在循环里"这个元信息喂给模型 | ~30 行(计数字典 + 非读调用重置 + 压缩后清空) |
-| 6 | execute 超时后 kill 进程组(`start_new_session` + `os.killpg`) | pi(`bash.ts:114`) | `subprocess.run(timeout)` 超时只杀 shell，shell 起的孙子进程(如 `python server.py &`)残留孤儿 | ~8 行 |
-| 7 | 修文案漂移：`EXEC_TIMEOUT=1200` 但 description/AGENTS.md 写"120 秒" | — | 文档与实现不一致，模型可能传错误的 timeout 预期 | 1 行 |
-| 不抄 | pi 三层结果格式(content/details/structuredContent)——过度设计；hermes 40+ 工具面与浏览器全家桶——违背极简内核；后台任务 process 工具——当前场景用不上；权限审批门——个人本地工具不需要 | | | |
+| # | 优化 | 学谁 | 实施 |
+|---|---|---|---|
+| 1 | execute 截断改**保头 40% + 保尾 60%**, 超长全量落盘给路径 | hermes / pi | ✅ `_truncate` 头尾保留 + `/tmp/agent-exec-*.log`, 提示"可 execute tail/cat 查看" |
+| 2 | read_file 续读提示可操作化 | pi | ✅ `用 offset=100 继续读` 带精确参数值 |
+| 3 | ls 加条目上限 | pi | ✅ `LS_MAX=500` + "换更具体的 path" 提示 |
+| 4 | edit BOM/CRLF 透明处理 | pi | ✅ 剥 BOM 回写保留; CRLF 在 LF 空间匹配、按原行尾回写还原 |
+| 5 | 行为熔断(重复读去重/edit 连败升级/同命令警告) | hermes | ✅ `_Ledger` 挂 Tool.ledger; edit 对不存在文件也计连败; write/edit 落盘后失效该文件记录; 压缩后 `loop.reset_tool_ledger()` 清空 |
+| 6 | execute 超时 kill 进程组 + 回传部分输出 | pi / hermes | ✅ `start_new_session` + `os.killpg`; 超时回传已产出输出("超时不代表一无所获") |
+| 7 | 修 EXEC_TIMEOUT 文案漂移 | — | ✅ description 改 f-string 引常量, 不再漂移 |
+| 不抄 | pi 三层结果格式(过度设计); hermes 40+ 工具面与浏览器全家桶(违背极简内核); 后台任务 process 工具(场景用不上); 权限审批门(个人本地工具不需要) | | |
 
 ## 四、结论
 
