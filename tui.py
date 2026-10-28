@@ -527,7 +527,8 @@ class ChatApp(App):
         self.state["messages"] = data["messages"]
         self.sess_path = path  # 原地续写原会话文件
         if data.get("usage"):
-            self.agent.usage = dict(data["usage"])  # 接回旧账本
+            self.agent.restore(data["usage"])  # 接回旧账本+压缩判定状态
+            self.update_ctx(self.agent.usage.get("last_in") or 0)  # 进度条立即恢复(原要对话一轮才显示)
         self.log_write(f"[dim]已恢复 {path.stem} ({len(self.state['messages'])} 条消息):[/dim]")
         for m in self.state["messages"]:  # 回显历史（工具消息跳过）
             t = text_of(m).strip()
@@ -602,7 +603,7 @@ def _headless(argv: list[str]) -> None:
             data = load_session_data(sess_path)
             messages = data["messages"]
             if data.get("usage"):
-                agent.usage = dict(data["usage"])
+                agent.restore(data["usage"])
             print(f"(接着会话 {sess_path.stem}, 已有 {len(messages)} 条)", file=sys.stderr)
         else:
             # id 不存在 = 以该 id 新开会话, 本轮结束后落盘, 后续可复用

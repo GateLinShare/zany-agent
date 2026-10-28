@@ -240,7 +240,14 @@ class Agent:
         self.usage["input"] += turn_in
         self.usage["output"] += turn_out
         self.usage["calls"] += 1
+        self.usage["last_in"] = turn_in  # resume 接回后进度条/压缩判定用
         return (turn_in, turn_out)
+
+    def restore(self, usage: dict) -> None:
+        """resume 接回账本与压缩判定状态(sessions 落盘的 usage dict)。
+        补齐缺 key 防旧会话文件 KeyError; hermes resume 语义: 状态立即可见。"""
+        self.usage = {k: int(usage.get(k, 0)) for k in ("input", "output", "calls", "last_in")}
+        self._last_prompt_tokens = usage.get("last_in") or None
 
     def _compact_step(self, messages: list[dict]) -> list[tuple]:
         """压缩步: 判定(真实优先/est 兜底) → 摘要改写。带两层保护:
