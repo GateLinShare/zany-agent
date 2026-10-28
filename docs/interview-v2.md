@@ -201,7 +201,7 @@ max_steps 效率红线)。每例 tempfile.TemporaryDirectory 隔离 + 全新 age
 比 docker 轻三个数量级,天然并行安全。四类 check:answer_contains /
 file_exists / file_contains / max_steps。
 
-无框架之后评测多了一层意义:**eval.py 直接测的就是手写 loop 的行为**,
+无框架之后评测多了一层意义:**eval/main.py 直接测的就是手写 loop 的行为**,
 旧方案里 eval 隔着 deepagents 测的是"框架+我的装配"的复合行为 —— 现在
 分数回退可以精确归因到自己的代码。
 

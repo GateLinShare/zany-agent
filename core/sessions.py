@@ -17,12 +17,14 @@ def new_session_file() -> Path:
     return SESSIONS_DIR / (time.strftime("%Y%m%d_%H%M%S") + ".json")
 
 
-def save_session(path: Path, messages: list[dict]) -> None:
+def save_session(path: Path, messages: list[dict], usage: dict | None = None) -> None:
     path.parent.mkdir(exist_ok=True)
     data = {
         "ts": datetime.now().isoformat(timespec="seconds"),
         "messages": messages,
     }
+    if usage:
+        data["usage"] = usage  # session 级 token 累计(hermes sessions 表语义)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
@@ -32,9 +34,10 @@ def _is_old_format(msgs: list) -> bool:
 
 
 def list_sessions(limit: int = 10) -> list:
-    """最近 limit 个会话: [(路径, 时间, 首条用户消息截断, 条数)]; 旧格式文件跳过。"""
+    """最近 limit 个会话, 按最近活跃(mtime)排序: [(路径, 时间, 首条用户消息截断, 条数)]; 旧格式跳过。"""
     out = []
-    for f in sorted(SESSIONS_DIR.glob("*.json"), reverse=True):
+    files = sorted(SESSIONS_DIR.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True)
+    for f in files:
         try:
             data = json.loads(f.read_text(encoding="utf-8"))
             msgs = data.get("messages", [])
@@ -42,7 +45,9 @@ def list_sessions(limit: int = 10) -> list:
             continue
         if _is_old_format(msgs):
             continue
-        out.append((f, data.get("ts", f.stem), _first_user(msgs)[:40], len(msgs)))
+        # 展示 mtime(最后写入时间)而非会话开始时间, 和"最近活跃"排序一致
+        ts = time.strftime("%m-%d %H:%M", time.localtime(f.stat().st_mtime))
+        out.append((f, ts, _first_user(msgs)[:40], len(msgs)))
         if len(out) >= limit:
             break
     return out
@@ -59,9 +64,13 @@ def _first_user(msgs: list[dict]) -> str:
     return ""
 
 
-def load_session(path: Path) -> list[dict]:
+def load_session_data(path: Path) -> dict:
+    """读整个 session 文件(含 usage 账本), 旧格式报错。"""
     data = json.loads(Path(path).read_text(encoding="utf-8"))
-    msgs = data["messages"]
-    if _is_old_format(msgs):
+    if _is_old_format(data.get("messages", [])):
         raise SystemExit(f"{path.stem} 是旧版(langchain)格式的会话文件, 不再支持恢复")
-    return msgs
+    return data
+
+
+def load_session(path: Path) -> list[dict]:
+    return load_session_data(path)["messages"]

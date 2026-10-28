@@ -39,6 +39,8 @@ from core.tools import builtin_tools
 
 SYSTEM_PROMPT = """你是一个编码助手, 在当前工作目录内完成用户的编码任务。
 回答保持简洁,操作文件时展示清晰路径。
+简单的问候、闲聊、测试性消息直接简短回应即可, 不要推断用户意图、
+不要联想之前的对话过程, 除非用户明确在问问题。
 路径约定: ls/read_file/edit_file/write_file 的路径以当前工作目录为根,
 读本项目文件用 "/agent.py" 或 "agent.py", 不要拼真实绝对路径;
 execute 是真实 shell, 用什么路径都行。
@@ -48,9 +50,11 @@ task 工具派 general-purpose 子代理独立跑子任务(检索、批量评测
 适合量大或可并行的活, 主对话保留结论即可。"""
 
 
-def build_agent(workdir: str):
+def build_agent(workdir: str, with_mcp: bool = True):
     model = ChatModel(make_client(), os.environ["ANTHROPIC_MODEL"])
-    tools = builtin_tools(workdir) + load_mcp_tools()
+    tools = builtin_tools(workdir)
+    if with_mcp:
+        tools += load_mcp_tools()  # 阻塞(每台最多 PROBE_TIMEOUT); TUI 传 False 后台补
     tools.append(make_task_tool(model, SYSTEM_PROMPT, workdir, []))  # ponytail: 子代理不载 MCP, 够用再说
     return Agent(model, SYSTEM_PROMPT + skill_section(workdir), tools, workdir)
 

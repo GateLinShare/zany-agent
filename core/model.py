@@ -24,6 +24,16 @@ class ChatModel:
         self.client = client
         self.model = model
         self.max_tokens = max_tokens
+        self._current = None  # 在途流(UI 线程 abort 时立即关闭, 不等下一个 SSE 事件)
+
+    def abort(self) -> None:
+        """关闭在途流, 阻塞中的事件迭代立即抛错返回(hermes 及时打断的实现方式)。"""
+        s = self._current
+        if s is not None:
+            try:
+                s.close()
+            except Exception:
+                pass
 
     def stream(self, system: str, messages: list[dict], tools: list[dict] | None = None):
         """流式调一次模型, yield 原始 SSE 事件(content_block_start/delta/stop 等),
@@ -37,7 +47,11 @@ class ChatModel:
         if tools:
             kwargs["tools"] = tools
         with self.client.messages.stream(**kwargs) as s:
-            yield from s  # MessageStream 迭代即 RawMessageStreamEvent
+            self._current = s
+            try:
+                yield from s  # MessageStream 迭代即 RawMessageStreamEvent
+            finally:
+                self._current = None
 
     def complete(self, system: str, prompt: str, max_tokens: int = 4096) -> str:
         """非流式单轮, 给摘要/判分等后台活用。"""
