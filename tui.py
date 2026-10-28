@@ -48,6 +48,16 @@ from cron_jobs import start_scheduler
 REASONING_LINES = 3  # 正文到达后 thinking 折叠保留行数
 LIVE_REASONING_LINES = 3  # live 流式区 thinking 只显示尾部几行, 防长思考刷屏
 
+# markdown 标题对齐 Claude Code: 白粗体, 去掉 rich 默认的品红下划线(h2=underline magenta)。
+# 覆盖点必须是 rich.themes.DEFAULT.styles(单例 Theme, 所有 Console 的 ThemeStack 底层共用):
+# - 改 rich.default_styles.DEFAULT_STYLES 字典无效——DEFAULT 在 import 时就 copy 走了
+# - 值必须 Style.parse(): Theme.styles 存 Style 对象, 塞 str 会在 get_style 崩(无 .link)
+from rich.style import Style
+from rich.themes import DEFAULT as _RICH_DEFAULT_THEME
+
+for _lvl in ("h1", "h2", "h3", "h4"):
+    _RICH_DEFAULT_THEME.styles[f"markdown.{_lvl}"] = Style.parse("bold #d4d4d4")
+
 
 def fmt_tokens(n: int) -> str:
     """token 紧凑格式, hermes format_token_count_compact 同语义:
