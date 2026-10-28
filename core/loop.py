@@ -243,6 +243,13 @@ class Agent:
         self.usage["last_in"] = turn_in  # resume 接回后进度条/压缩判定用
         return (turn_in, turn_out)
 
+    def reset_tool_ledger(self) -> None:
+        """清空内置工具的行为熔断账本(hermes 语义: 压缩后清空)。
+        read 去重依赖"早前读过且内容见上文"这一事实, 摘要改写后不再成立。"""
+        for t in self.tools.values():
+            if t.ledger:
+                t.ledger.reset()
+
     def restore(self, usage: dict) -> None:
         """resume 接回账本与压缩判定状态(sessions 落盘的 usage dict)。
         补齐缺 key 防旧会话文件 KeyError; hermes resume 语义: 状态立即可见。"""
@@ -264,6 +271,7 @@ class Agent:
             return [("compact_error", str(e))]
         if not compressed:
             return []
+        self.reset_tool_ledger()  # 摘要改写掉旧 read 结果, 行为账本(去重 stub)必须同步失效
         # 防抖同口径: est vs est(真实值与 est 差一个 system+tools 的量, 不能混比)
         self._ineffective = self._ineffective + 1 if est_after >= est_before * 0.9 else 0
         return [("compact", tokens, est_after)]
