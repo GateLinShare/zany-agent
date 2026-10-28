@@ -147,11 +147,15 @@ class Tool:
 ### 4.2 触发与切分
 
 ```python
-def maybe_summarize(model, messages, trigger_tokens=80*1024, keep=20):
+def maybe_summarize(model, messages, prompt_tokens=None, trigger_tokens=80*1024, keep=20):
+    ...
+    return (是否压缩, 判定用token, 压缩前est, 压缩后est)
 ```
 
-- **token 估算**:字符数/3,不引 tokenizer —— 触发阈值本身是粗粒度的,
-  精确计数是伪需求(ponytail 注释里写明了)。
+- **token 判定(hermes 语义, postflight)**:优先用上一次响应的真实 prompt_tokens
+  (loop 从 `message_start`/`message_delta` 抓的 usage),拿到真实值才准;
+  None 时(会话恢复首轮/GLM 代理不回 usage)回落 字符数/3 粗估。
+  字符数天然高估, 往"提前压缩"的方向错, 保守方向正确。
 - **切分点保护**:截断点不能落在"工具调用对"中间。messages 的结构是
   `assistant(tool_use) → user(tool_result)` 成对出现,如果切分点把
   tool_result 切到摘要区、tool_use 留在保留区,API 直接报孤儿结果错误。
@@ -163,7 +167,24 @@ def maybe_summarize(model, messages, trigger_tokens=80*1024, keep=20):
   (中间推理不需要进摘要),tool_use 只留名字,tool_result 留前 500 字。
   否则摘要请求本身就可能超上下文。
 
-触发时机在 loop 每轮模型调用前,所以压缩对 UI 完全透明。
+触发时机学 hermes context_engine:每轮响应+工具回填后、下一轮模型调用前
+(loop._compact_step, postflight —— "对话完校验");循环开头也判一次,
+是给恢复的超长会话的 preflight 兜底。带两层保护(都从 hermes 学的):
+- **防抖**(#14690):压缩后 est 降幅 <10% 连续两次 → 放弃,防无限压缩循环;
+  对比必须同口径(est vs est),真实值和 est 差一个 system+tools 的量,不能混比
+- **熔断**(600s 冷却的简化):摘要 LLM 失败一次就停用本会话自动压缩,防每轮重试拖垮对话
+
+## 4.3 token 账本(hermes sessions 表语义)
+
+- **记账点在聚合循环里**:Anthropic 流式协议的真实 usage 在 `message_start`
+  (input_tokens + cache_read + cache_creation)和 `message_delta`(output_tokens)
+  两个事件里,聚合时顺手接住,不当场接就永远丢了(此前就是这个 bug)。
+- **只做 session 级累计**:`Agent.usage = {input, output, calls}`,随
+  save_session 落盘、resume 时接回。不做消息级 —— hermes 的
+  messages.token_count 就是没在写入时顺手记,一直烂尾成 null。
+- 子代理消耗不计入主会话账本(dcode 有子代理转移机制,我们不搞,保持薄)。
+- **事件给绝对量/增量分开**:usage 事件给的是本轮增量,累计值在 Agent 上;
+  UI(tui)只展示不维护,丢事件也不影响账本。
 
 ## 5. 一句话总结
 

@@ -7,8 +7,8 @@
      "checks": {"answer_contains": ["三"], "file_contains": {"/out.txt": ["ok"]},
                 "file_exists": ["/out.txt"], "max_steps": 6}}
 
-    uv run eval.py                    # 跑全部
-    uv run eval.py smoke              # 只跑 name 含 "smoke" 的
+    uv run eval/main.py                # 跑全部
+    uv run eval/main.py smoke          # 只跑 name 含 "smoke" 的
 """
 
 import json
@@ -17,9 +17,10 @@ import sys
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # 脚本不在根目录了, 补上 import agent 的路径
 from agent import build_agent, text_of
 
-EVALS_FILE = Path(__file__).resolve().parent / "evals" / "cases.jsonl"
+EVALS_FILE = Path(__file__).resolve().parent.parent / "evals" / "cases.jsonl"
 
 
 def load_cases(pattern: str) -> list[dict]:

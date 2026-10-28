@@ -147,7 +147,7 @@ TUI 里 agent 跑在后台线程,用 `stream_mode=["messages", "values"]` 双流
 ### 4.2 评测 loop 实现
 
 ```
-eval.py:  JSONL 用例 → tempfile.TemporaryDirectory 隔离 → build_agent(workdir).invoke
+eval/main.py: JSONL 用例 → tempfile.TemporaryDirectory 隔离 → build_agent(workdir).invoke
           → 四类 check 判分 → PASS/FAIL + N/M 汇总
 ```
 
@@ -156,7 +156,7 @@ eval.py:  JSONL 用例 → tempfile.TemporaryDirectory 隔离 → build_agent(wo
   / `max_steps`(防绕圈,效率红线);
 - 隔离用 `tempfile.TemporaryDirectory`:每例全新目录 + 全新 agent,互不污染,
   天然并行安全——比 pi 的 docker 隔离轻三个数量级,对纯文件/shell 任务够用;
-- `eval.py <pattern>` 按名字过滤,先跑 smoke 子集再跑全量。
+- `eval/main.py <pattern>` 按名字过滤,先跑 smoke 子集再跑全量。
 
 样例四条覆盖四类能力:读后答(检验分页读取)、写文件(检验产物)、精确编辑
 (检验 edit 而非整文件重写)、真实 shell 跨虚拟根(检验路径约定是否被模型遵守)。
@@ -170,7 +170,7 @@ eval.py:  JSONL 用例 → tempfile.TemporaryDirectory 隔离 → build_agent(wo
 evolve.py(规划中)
   1. 快照当前 SYSTEM_PROMPT + AGENTS.md → snapshots/v<N>.tar.gz
   2. optimizer 轮: tui.py -p "读 scoreboard 和失败 case, 提出可证伪假设, 改 AGENTS.md"
-  3. 跑 eval.py, 分数没有严格提升 → 从快照回滚
+  3. 跑 eval/main.py, 分数没有严格提升 → 从快照回滚
   4. 追加 scoreboard.yaml(每版本每 case 每次运行的分数), 回到 2
 ```
 
