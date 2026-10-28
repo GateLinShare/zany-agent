@@ -5,7 +5,7 @@
 > 全部手写,核心在 `core/` 目录约 700 行纯 Python。第三方依赖只剩
 > anthropic(模型 SDK)、mcp(协议客户端)、textual(TUI)、croniter。
 > 本文按"面试官会追问什么"组织:每个设计给出**为什么这么选、放弃了什么、
-> 什么时候升级**。组件实现细节见 `docs/components.md`,本文讲决策与叙事。
+> 什么时候升级**。组件实现细节见 `docs/architecture.md`,本文讲决策与叙事。
 
 ## 1. 一句话定位
 

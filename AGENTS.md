@@ -3,7 +3,7 @@
 > 本项目：`/data01/tsn/code/tsn_files/deepagents-mini-agent`
 > 定位：**无框架手写的 mini coding agent**（GLM，走 anthropic 兼容代理）。从
 > deepagents + langchain 迁移而来，协议只有一套、循环只有一个、工具只有一种形态。
-> 配套文档：`docs/components.md`（loop/工具/压缩实现细节）、`docs/interview-v2.md`（架构叙事与迁移复盘）。
+> 配套文档：`docs/architecture.md`（架构与组件全量文档）、`docs/interview-v2.md`（架构叙事与迁移复盘）。
 
 ## 1. 当前架构
 
@@ -108,7 +108,7 @@ uv run eval/main.py [name]      # 评测(用例在 evals/cases.jsonl)
 
 ## 3. 后续参考入口
 
-- 想改 loop / 压缩 / 工具行为 → 先读 `docs/components.md`
+- 想改 loop / 压缩 / 工具行为 → 先读 `docs/architecture.md`
 - 想看 edit 模糊匹配的完整原版 → `/data01/tsn/code/pi/packages/coding-agent/src/core/tools/edit-diff.ts`
 - 想对比"带框架的同一套能力" → `/data01/tsn/code/deepagents/libs/deepagents/deepagents/`
 - 架构问答口径（面试/评审）→ `docs/interview-v2.md`
