@@ -80,19 +80,34 @@ TOOL_VERB = {
 }
 
 
+CMD_CLIP = 60  # 命令/prompt 单行显示宽度上限(用户定 60, 前后缀另占~24列): 超出尾部 …
+
+
+def _clip(s: str, n: int = CMD_CLIP) -> str:
+    """按显示宽截断(中文算 2 列, rich.cells 口径), 尾部加 …。"""
+    from rich.cells import cell_len
+
+    if cell_len(s) <= n:
+        return s
+    while s and cell_len(s + "…") > n:
+        s = s[:-1]
+    return s + "…"
+
+
 def tool_line(name: str, args: dict, dur: float, output: str) -> str:
     """工具完成行: `┊ {emoji} {工具名:<9} {关键参数}  {耗时}`, 失败变红。
-    关键参数取 path/命令; 命令/prompt 不截断(chatlog wrap 自动折行);
-    markup=True 环境里任意文本必须 escape(命令含 [a-z] 之类会被当样式标签)。"""
+    命令/prompt 截到一行(用户定: 不全显, 防折行刷屏); 路径尾部截断;
+    先 escape 再截断 —— markup=True 环境里任意文本必须转义(命令含 [a-z]
+    之类会被当样式标签), 且转义后截断宽度才确定。"""
     from rich.markup import escape
 
     emoji, verb = TOOL_VERB.get(name, ("⚡", name))
     if name == "execute":
-        detail = str(args.get("command", ""))
+        detail = _clip(escape(str(args.get("command", ""))))
     elif name == "task":
-        detail = str(args.get("prompt", ""))
+        detail = _clip(escape(str(args.get("prompt", ""))))
     else:
-        p = str(args.get("path", ""))
+        p = escape(str(args.get("path", "")))
         detail = ("..." + p[-32:]) if len(p) > 35 else p
     err = output.startswith("错误:")
     detail = f"[red]{escape(detail)}[/red]" if err else escape(detail)
