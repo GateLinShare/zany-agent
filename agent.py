@@ -50,14 +50,35 @@ task 工具派 general-purpose 子代理独立跑子任务(检索、批量评测
 适合量大或可并行的活, 主对话保留结论即可。"""
 
 
+def prompt_packs() -> str:
+    """常驻风格包: styles/<name>.md 全文拼进 system prompt, .env 里 PROMPT_PACKS=ponytail,x 选用。
+
+    与 skills 的渐进披露不同, 人格/规则类文本必须每轮都在场, 不能等模型按需读。
+    插 = 丢一个 md 文件进 styles/, 拔 = PROMPT_PACKS 里删名字。
+    """
+    root = Path(__file__).resolve().parent / "styles"
+    names = [n.strip() for n in os.environ.get("PROMPT_PACKS", "").split(",") if n.strip()]
+    out = []
+    for n in names:
+        p = root / f"{n}.md"
+        if not p.is_file():
+            print(f"prompt pack 不存在, 跳过: {p}")
+            continue
+        out.append(p.read_text(encoding="utf-8"))
+    return "\n\n".join(out)
+
+
+STYLE_PROMPT = SYSTEM_PROMPT + "\n\n" + prompt_packs()
+
+
 def build_agent(workdir: str, with_mcp: bool = True):
     model = ChatModel(make_client(), os.environ["ANTHROPIC_MODEL"])
     max_turns = int(os.environ.get("MAX_TURNS", "40"))  # 单轮工具轮数上限, 防打转烧钱
     tools = builtin_tools(workdir)
     if with_mcp:
         tools += load_mcp_tools()  # 阻塞(每台最多 PROBE_TIMEOUT); TUI 传 False 后台补
-    tools.append(make_task_tool(model, SYSTEM_PROMPT, workdir, []))  # ponytail: 子代理不载 MCP, 够用再说
-    return Agent(model, SYSTEM_PROMPT + skill_section(workdir), tools, workdir, max_turns=max_turns)
+    tools.append(make_task_tool(model, STYLE_PROMPT, workdir, []))  # ponytail: 子代理不载 MCP, 够用再说
+    return Agent(model, STYLE_PROMPT + skill_section(workdir), tools, workdir, max_turns=max_turns)
 
 
 if __name__ == "__main__":

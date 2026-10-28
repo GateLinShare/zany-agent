@@ -37,6 +37,7 @@ core/
 | **.env 随仓库走** | 用户明确要求：内网私有仓库，.env(含密钥)直接提交，方便多机部署；不要往 .gitignore 加 .env、不要 git rm --cached .env（曾自作主张被纠正） |
 | **TUI 对齐 Claude Code 观感** | 正文/标题 #d4d4d4, markdown 标题白粗体(覆盖点: `rich.themes.DEFAULT.styles` 单例 + `Style.parse()`, 改 DEFAULT_STYLES 字典无效——DEFAULT import 时已 copy；塞 str 会在 get_style 崩)；thinking 折叠 3 行(SHOW_THINKING 开全量)；轮末摘要行 `Thought for Xs, ran N tool calls`(dim, 前置空行) |
 | **回合侧账 marks** | Thought/tool 计数是运行时局部变量, Anthropic 消息里没有 → 会话文件顶层 `marks=[{at, thought, tools}]`, at=回合结束时的消息条数做对齐锚；恢复回放按回合分组(真用户消息开组, tool_result 排除), 锚失配(压缩改写后)静默跳过不误导；老会话文件无 marks, 只有新回合才有 |
+| **风格包插拔** | 常驻行为(人格/规则)走 `styles/<name>.md` + `.env` 的 `PROMPT_PACKS`(逗号分隔), `agent.prompt_packs()` 全文拼进 SYSTEM_PROMPT(含 task 子代理)——常驻文本不能走 skills 的渐进披露(模型不会每轮自觉读全文)；按需技能仍走 `skills/` 渐进披露, 两条通道别混。不做通用 hook 系统, 等真实需求(skills/MCP 表达不了、loop.py 出现第 2 个特判)再抽 |
 
 常用命令：
 
