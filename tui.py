@@ -295,7 +295,7 @@ class ChatApp(App):
         super().__init__()
         self.workdir = os.getcwd()
         self.agent = build_agent(self.workdir, with_mcp=False)  # MCP 后台补, 界面秒起
-        self.state = {"messages": []}
+        self.state = {"messages": [], "marks": []}
         self.mcp_stamp = config_stamp()
         self.sess_path = None
         self.resume_id = resume_id  # -r <id> / -r(最近一个) / None(新会话)
@@ -505,10 +505,22 @@ class ChatApp(App):
             self.call_from_thread(self.turn_finished)
             return
         # 每轮落盘: 首轮创建会话文件, 之后覆盖写（fork 恢复后开新文件）
+        # 回合侧账: 消息条数当锚, 恢复回放按锚对齐(防止 compact 后错位)
+        self.state["marks"].append(
+            {
+                "at": len(self.state["messages"]),
+                "thought": (
+                    max(1, round(think_last - think_t0)) if think_t0 is not None else None
+                ),
+                "tools": n_tools,
+            }
+        )
         if self.sess_path is None:
             self.sess_path = new_session_file()
         try:
-            save_session(self.sess_path, self.state["messages"], self.agent.usage)
+            save_session(
+                self.sess_path, self.state["messages"], self.agent.usage, self.state["marks"]
+            )
         except Exception as e:
             self.call_from_thread(self.log_write, f"[dim](会话保存失败: {e})[/dim]")
         # 末段定稿进 chatlog(与 live 区同一样式)
@@ -580,6 +592,7 @@ class ChatApp(App):
 
         旧会话已每轮落盘, 这里只是 UI 和内存态归零 —— /resume 随时能找回。"""
         self.state["messages"] = []
+        self.state["marks"] = []
         self.sess_path = None  # 解除续写目标, 下轮落盘时 new_session_file 另起新文件
         self.agent.usage = {"input": 0, "output": 0, "calls": 0}  # 账本清零(与 loop 初始同款)
         self.agent._last_prompt_tokens = None  # 压缩判定同步清零, 防旧 last_in 误触发新会话压缩
@@ -594,6 +607,7 @@ class ChatApp(App):
         """恢复指定会话文件: 接回消息/账本/续写目标, 并回显历史。"""
         data = load_session_data(path)
         self.state["messages"] = data["messages"]
+        self.state["marks"] = data.get("marks", []) or []
         self.sess_path = path  # 原地续写原会话文件
         if data.get("usage"):
             self.agent.restore(data["usage"])
@@ -604,21 +618,44 @@ class ChatApp(App):
             + self.state["messages"])
         self.update_ctx(tin)
         self.log_write(f"[dim]已恢复 {path.stem} ({len(self.state['messages'])} 条消息):[/dim]")
-        for m in self.state["messages"]:  # 回显历史（工具消息跳过）
-            t = text_of(m).strip()
-            if not t:
-                continue
-            if m["role"] == "user":
-                self.chat_line("user", t)
+        # 回放历史: 按"回合"分组(真用户消息开组; tool_result 也穿 user 皮, 要排除),
+        # 组内 assistant 的 thinking/正文合并成一块渲染, 再按锚找 marks 补摘要行
+        marks_by_at = {m["at"]: m for m in self.state["marks"]}
+        groups: list[dict] = []  # [{user, th, text, at}]  at=组末消息序号(锚)
+        msgs = self.state["messages"]
+        for idx, m in enumerate(msgs):
+            is_tool_result = isinstance(m.get("content"), list) and any(
+                isinstance(b, dict) and b.get("type") == "tool_result"
+                for b in m["content"]
+            )
+            if m["role"] == "user" and not is_tool_result:
+                groups.append({"user": text_of(m).strip(), "th": "", "text": "", "at": idx + 1})
             elif m["role"] == "assistant":
-                # thinking 折叠展示(与当轮定稿同款), 不只是干巴巴正文
-                th = ""
+                if not groups:
+                    groups.append({"user": None, "th": "", "text": "", "at": 0})
+                g = groups[-1]
                 if isinstance(m.get("content"), list):
-                    th = "".join(
+                    g["th"] += "".join(
                         b.get("thinking", "") for b in m["content"]
                         if isinstance(b, dict) and b.get("type") == "thinking"
                     )
-                self.log_render(_turn_renderable(th, t, fold=True))
+                t = text_of(m).strip()
+                g["text"] += ("\n" if g["text"] else "") + t
+                g["at"] = idx + 1  # 组内最后一条 assistant 消息的位置
+        for g in groups:
+            if g["user"]:
+                self.chat_line("user", g["user"])
+            if g["th"] or g["text"].strip():
+                self.log_render(_turn_renderable(g["th"], g["text"].strip(), fold=True))
+            mk = marks_by_at.get(g["at"])  # 锚对不上(compaction 后)就静默跳过
+            if mk:
+                parts = []
+                if mk.get("thought"):
+                    parts.append(f"Thought for {mk['thought']}s")
+                if mk.get("tools"):
+                    parts.append(f"ran {mk['tools']} tool call{'s' if mk['tools'] > 1 else ''}")
+                if parts:
+                    self.log_write(f"\n[dim]{', '.join(parts)}[/dim]")
         self.log_write("")
 
     def resume_picker(self) -> None:
