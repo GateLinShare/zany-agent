@@ -17,7 +17,9 @@ def new_session_file() -> Path:
     return SESSIONS_DIR / (time.strftime("%Y%m%d_%H%M%S") + ".json")
 
 
-def save_session(path: Path, messages: list[dict], usage: dict | None = None) -> None:
+def save_session(
+    path: Path, messages: list[dict], usage: dict | None = None, marks: list | None = None
+) -> None:
     path.parent.mkdir(exist_ok=True)
     data = {
         "ts": datetime.now().isoformat(timespec="seconds"),
@@ -25,6 +27,10 @@ def save_session(path: Path, messages: list[dict], usage: dict | None = None) ->
     }
     if usage:
         data["usage"] = usage  # session 级 token 累计(hermes sessions 表语义)
+    if marks:
+        # 回合侧账(Thought for Xs / ran N tool calls): at=回合结束时的消息条数,
+        # 恢复回放拿它当对齐锚 —— compact 改写历史后锚失配的条目自动丢弃, 不误导
+        data["marks"] = marks
     path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
