@@ -35,6 +35,8 @@ core/
 | **MCP 快速认输** | pypi 不通的环境里 uvx 会卡几分钟:probe 整体 wait_for 15s、工具调用 60s,超时跳过;stdio 子进程 stderr 收 devnull(MCP_STDERR=1 透传);TUI 界面先起、MCP 后台补(build_agent(with_mcp=False) + add_tools),except 不写 BaseException 防 Ctrl-C 被吞 |
 | **工具防爆层** | 截断保头 40%+尾 60%(错误在头、新输出在尾)、execute 超长全量落盘给路径、ls/read 上限提示带精确值、edit BOM/CRLF 透明;行为熔断账本 `_Ledger`(重复读去重/edit 连败升级/同命令警告)挂在 Tool.ledger,压缩后由 `loop.reset_tool_ledger()` 清空 -- 都是提示不是阻断,把"你在循环里"喟给模型 |
 | **.env 随仓库走** | 用户明确要求：内网私有仓库，.env(含密钥)直接提交，方便多机部署；不要往 .gitignore 加 .env、不要 git rm --cached .env（曾自作主张被纠正） |
+| **TUI 对齐 Claude Code 观感** | 正文/标题 #d4d4d4, markdown 标题白粗体(覆盖点: `rich.themes.DEFAULT.styles` 单例 + `Style.parse()`, 改 DEFAULT_STYLES 字典无效——DEFAULT import 时已 copy；塞 str 会在 get_style 崩)；thinking 折叠 3 行(SHOW_THINKING 开全量)；轮末摘要行 `Thought for Xs, ran N tool calls`(dim, 前置空行) |
+| **回合侧账 marks** | Thought/tool 计数是运行时局部变量, Anthropic 消息里没有 → 会话文件顶层 `marks=[{at, thought, tools}]`, at=回合结束时的消息条数做对齐锚；恢复回放按回合分组(真用户消息开组, tool_result 排除), 锚失配(压缩改写后)静默跳过不误导；老会话文件无 marks, 只有新回合才有 |
 
 常用命令：
 
