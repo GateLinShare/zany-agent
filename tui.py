@@ -24,7 +24,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.message import Message
 from textual.screen import ModalScreen
-from textual.widgets import Footer, OptionList, RichLog, Static, TextArea
+from textual.widgets import OptionList, RichLog, Static, TextArea
 from textual.widgets.option_list import Option
 
 from agent import build_agent, text_of
@@ -76,7 +76,7 @@ def ctx_bar(tin: int) -> str:
 # 工具行样式映射(hermes agent/display.py get_cute_tool_message): emoji + 动词
 TOOL_VERB = {
     "ls": ("📂", "ls"), "read_file": ("📖", "read"), "write_file": ("✍️", "write"),
-    "edit_file": ("🔧", "edit"), "execute": ("💻", "$"), "task": ("⛓", "task"),
+    "edit_file": ("🔧", "edit"), "execute": ("💻", "exec"), "task": ("⛓", "task"),
 }
 
 
@@ -112,7 +112,7 @@ USER_NAME = os.environ.get("USER_NAME", "user")  # 用户消息前缀, .env 可�
 def _turn_renderable(think: str, body: str, fold: bool = False):
     """一轮流式内容渲染成 Rich 组合, live 区和 chatlog 定稿共用同一样式。
     Claude Code 风格(抄它的配色与层级): thinking 树形缩进(dark_khaki),
-    正文 `名字> ` 前缀引导(gold1), 整行 **粗体** 行渲染成金色小标题。"""
+    正文 `名字> ` 前缀引导(gold3), 整行 **粗体** 行渲染成金色小标题。"""
     parts = []
     if think.strip():
         collapsed = fold or bool(body.strip())
@@ -134,7 +134,7 @@ def _turn_renderable(think: str, body: str, fold: bool = False):
             t.append(prefix if i == 0 else pad, style="white")  # 名字与正文同色, 不抢眼
             s = line.strip()
             if s.startswith("**") and s.endswith("**") and len(s) > 4:
-                t.append(s[2:-2], style="bold gold1")  # ponytail: 只认整行 **粗体**, 行内粗体不渲染
+                t.append(s[2:-2], style="bold gold3")  # 小标题同 gold3, 和用户行一个色系
             else:
                 t.append(line, style="white")
             t.append("\n")
@@ -169,6 +169,7 @@ class ChatPrompt(TextArea):
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
+        self.cursor_blink = False  # Claude 同款: 光标常亮不闪
         self._last_char_ts = 0.0
         self._run = 0
 
@@ -227,6 +228,12 @@ class ResumeScreen(ModalScreen):
         self.dismiss(None)
 
 
+class ChatLog(RichLog):
+    """chatlog 不可聚焦: 点历史/滚轮不抢焦点, 输入框永远持有光标(Claude 同款)。"""
+
+    can_focus = False
+
+
 class ChatApp(App):
     TITLE = "deepagents mini-agent"
     # ctrl+c 语义学 hermes: 运行中第一次=打断当前轮, 第二次(或空闲时)=退出
@@ -253,19 +260,17 @@ class ChatApp(App):
         self.wakeup: "queue.Queue[str]" = queue.Queue()  # cron 唤醒队列
 
     def compose(self) -> ComposeResult:
-        yield RichLog(id="chatlog", markup=True, wrap=True)
+        yield ChatLog(id="chatlog", markup=True, wrap=True)
         yield Static("", id="live")  # 流式输出的在屏消息, 轮结束移入 chatlog
-        yield ChatPrompt(placeholder="输入消息 · /resume 恢复会话 · exit 退出 · shift+enter 换行", id="prompt")
-        yield Static("", id="ctx")  # 状态栏: ctx 已用/上限(hermes footer 状态栏同款)
-        yield Footer()
+        yield ChatPrompt(placeholder="输入消息", id="prompt")
+        yield Static("", id="ctx")  # 输入框下常驻一行: 状态提示 + ctx(替代 Footer)
 
     def on_mount(self) -> None:
         self.update_ctx(0)
+        self.query_one("#prompt", ChatPrompt).focus()  # 焦点常驻输入框, 进来直接能打字
         log = self.query_one("#chatlog", RichLog)
         log.write(f"[bold]mini-agent[/] (tools: {', '.join(self.agent.tools)})")
-        log.write(
-            f"[dim]工作目录: {self.workdir} · /resume 恢复会话 · exit 退出[/dim]\n"
-        )
+        log.write(f"[dim]工作目录: {self.workdir}[/dim]\n")  # 快捷键提示在输入框下常驻行, 不占横幅
         if self.resume_id is not None:  # uv run tui.py -r [id] 启动即恢复
             if self.resume_id:
                 path = SESSIONS_DIR / f"{self.resume_id}.json"
@@ -311,11 +316,11 @@ class ChatApp(App):
         self.query_one("#chatlog", RichLog).write(renderable)
 
     def chat_line(self, who: str, text: str) -> None:
-        """聊天行: 用户消息 `名字> ` 金黄(与 AI 正文同款前缀风格)。"""
+        """聊天行: 用户消息金子+暗底色条(Claude Code 同款视觉); AI 正文白字无底。"""
         if who == "user":
             t = Text()
-            t.append(f"{USER_NAME}> ", style="bold gold1")
-            t.append(text, style="bold gold1")
+            t.append(f"{USER_NAME} ❯ ", style="bold gold3 on grey23")
+            t.append(text, style="gold3 on grey23")  # 低对比底色条, 近似"透明背景"
             self.query_one("#chatlog", RichLog).write(t)
         else:
             self.query_one("#chatlog", RichLog).write(
@@ -326,10 +331,9 @@ class ChatApp(App):
         self.busy = busy
         if not busy:
             self._interrupt_pending = False  # 一轮安全落地, 重置两段式退出
-        inp = self.query_one("#prompt", ChatPrompt)
-        inp.disabled = busy
-        inp.placeholder = "agent 思考中…" if busy else "输入消息 · /resume 恢复会话 · exit 退出 · shift+enter 换行"
-        inp.focus()  # 每轮结束焦点回输入框, 不用手动点
+        # 输入框不disable(Claude 同款: 任何时候都能打字; busy 时回车=打断+排队)
+        self.query_one("#prompt", ChatPrompt).focus()
+        self.update_ctx(getattr(self, "_last_tin", 0))  # 常驻提示行随忙/闲切换
 
     # ---- 提交 / 一轮对话 ----
 
@@ -427,6 +431,10 @@ class ChatApp(App):
                     self.call_from_thread(
                         self.log_write, f"[dim](自动压缩已停用: {ev[1]})[/dim]"
                     )
+                elif kind == "turn_limit":
+                    self.call_from_thread(
+                        self.log_write, f"[yellow]⏹ 已达最大轮数 {ev[1]}, 本轮中止(继续发消息可接着干)[/yellow]"
+                    )
                 self.call_from_thread(self.live_update, think_buf, text_buf)
             self.state["messages"] = msgs
         except Exception as e:
@@ -452,8 +460,12 @@ class ChatApp(App):
     # ---- 流式显示 ----
 
     def update_ctx(self, tin: int) -> None:
-        """状态栏刷新: 最近一次响应的真实 prompt tokens = 当前 ctx 占用。"""
-        self.query_one("#ctx", Static).update(f"[dim]· {ctx_bar(tin)}[/dim]")
+        """输入框下方常驻一行(Claude Code 的 auto-mode 行同款):
+        状态提示 + ctx 占用; set_busy 也走这里, 提示随忙/闲切换。"""
+        self._last_tin = tin
+        state = ("[yellow]⏵ 运行中 · ctrl+c 打断[/yellow]" if self.busy
+                 else "[dim]⏵⏵ /resume 恢复 · exit 退出[/dim]")
+        self.query_one("#ctx", Static).update(f"{state} [dim]· {ctx_bar(tin)}[/dim]")
 
     # 贴图走文件路径: [图片: 路径] 占位符(core/messages.user_content 转成 image 块)。
     # 不做剪贴板粘贴 —— SSH 终端(VS Code/Windows Terminal)对图片粘贴什么都不发, 读不到。

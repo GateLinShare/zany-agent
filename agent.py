@@ -52,11 +52,12 @@ task 工具派 general-purpose 子代理独立跑子任务(检索、批量评测
 
 def build_agent(workdir: str, with_mcp: bool = True):
     model = ChatModel(make_client(), os.environ["ANTHROPIC_MODEL"])
+    max_turns = int(os.environ.get("MAX_TURNS", "40"))  # 单轮工具轮数上限, 防打转烧钱
     tools = builtin_tools(workdir)
     if with_mcp:
         tools += load_mcp_tools()  # 阻塞(每台最多 PROBE_TIMEOUT); TUI 传 False 后台补
     tools.append(make_task_tool(model, SYSTEM_PROMPT, workdir, []))  # ponytail: 子代理不载 MCP, 够用再说
-    return Agent(model, SYSTEM_PROMPT + skill_section(workdir), tools, workdir)
+    return Agent(model, SYSTEM_PROMPT + skill_section(workdir), tools, workdir, max_turns=max_turns)
 
 
 if __name__ == "__main__":
