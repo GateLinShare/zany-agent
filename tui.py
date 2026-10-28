@@ -155,14 +155,14 @@ def _turn_renderable(think: str, body: str, fold: bool = False, md: bool = True)
         if _MD_STRUCT.match(first):
             # 首行是 markdown 块结构(表格/标题/引用/代码围栏/列表), 切出会断结构 → 圆点独立行
             if head:
-                parts.append(Text("⏺", style="bold bright_white"))
-            parts.append(Markdown(body.strip()) if md else Text(body.strip(), style="bright_white"))
+                parts.append(Text("⏺", style="bold #d4d4d4"))
+            parts.append(Markdown(body.strip()) if md else Text(body.strip(), style="#d4d4d4"))
         else:
             # Claude 同款: 圆点+首句同行, 续行整块进 markdown 顶格
-            dot = Text("⏺ ", style="bold bright_white") if head else Text("")
-            parts.append(dot + Text(first, style="bright_white"))
+            dot = Text("⏺ ", style="bold #d4d4d4") if head else Text("")
+            parts.append(dot + Text(first, style="#d4d4d4"))
             if rest:
-                parts.append(Markdown(rest) if md else Text(rest, style="bright_white"))
+                parts.append(Markdown(rest) if md else Text(rest, style="#d4d4d4"))
     return Group(*parts) if parts else Text("")
 
 
@@ -362,7 +362,7 @@ class ChatApp(App):
             log.write(t)
         else:
             self.query_one("#chatlog", RichLog).write(
-                Text(text, justify="left", style="bright_white")
+                Text(text, justify="left", style="#d4d4d4")
             )
 
     def set_busy(self, busy: bool) -> None:
@@ -512,7 +512,9 @@ class ChatApp(App):
         if n_tools:
             marks.append(f"ran {n_tools} tool call{'s' if n_tools > 1 else ''}")
         if marks:
-            self.call_from_thread(self.log_write, f"[dim]{', '.join(marks)}[/dim]")
+            self.call_from_thread(
+                self.log_write, f"\n[dim]{', '.join(marks)}[/dim]"
+            )  # 前置 \n 空一行(Claude 的 * Baked for ... 前也有空行)
         self.call_from_thread(self.live_hide)
         self.call_from_thread(self.turn_finished)
 
