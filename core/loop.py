@@ -227,7 +227,9 @@ class Agent:
             # postflight(hermes): 对话完校验, 超阈值就地压缩, 下一轮带上瘦身后的历史
             for ev in self._compact_step(messages):
                 yield ev
-        raise RuntimeError(f"超过最大轮数 {self.max_turns}, 已停止")
+        note = f"已达最大轮数 {self.max_turns}, 本轮暂时中止; 继续对话可让模型接着干"
+        messages.append({"role": "assistant", "content": [{"type": "text", "text": note}]})
+        yield ("turn_limit", self.max_turns)
 
     def _account(self, turn_in: int, turn_out: int) -> tuple | None:
         """真实 usage 记账(hermes update_from_response), 打断路径也走这里。
