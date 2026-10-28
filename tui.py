@@ -13,6 +13,7 @@ agent.invoke 放后台线程跑, UI 不卡; 同一轮没跑完先排队。
 import json
 import os
 import queue
+import re
 import sys
 import time
 from pathlib import Path
@@ -124,9 +125,10 @@ def _fold_thinking(think: str) -> str:
     return think.strip()
 
 
-AGENT_NAME = os.environ.get("AGENT_NAME", "mini-agent")  # 正文前缀, .env 可配
-USER_NAME = os.environ.get("USER_NAME", "user")  # 用户消息前缀, .env 可配
 SHOW_THINKING = os.environ.get("SHOW_THINKING", "0").lower() in ("1", "true", "yes", "on")  # .env 可配, 默认不显示
+
+
+_MD_STRUCT = re.compile(r"^\s*(?:[#>|`]|```|[-*+ ]|\d+[.)])")  # 首行是这些开头时不切出, 保结构
 
 
 def _turn_renderable(think: str, body: str, fold: bool = False, md: bool = True):
@@ -147,12 +149,20 @@ def _turn_renderable(think: str, body: str, fold: bool = False, md: bool = True)
                       for i, l in enumerate(lines)),
             style="dark_khaki italic"))
     if body.strip():
-        parts.append(Text(f"{AGENT_NAME}> ", style="bold bright_white"))  # 引导行独立一行
-        if md:  # 定稿: 整块 markdown 渲染(表格/代码块/粗体/列表)
-            parts.append(Markdown(body.strip()))
-        else:  # live 流式: 纯文本粗排, 半截表格/未闭合代码块不抖
-            parts.append(Text(body.strip(), style="bright_white"))
-    return Group(*parts) if parts else Text("")
+        lines = body.strip().splitlines()
+        first, rest = lines[0], "\n".join(lines[1:])
+        head = not (think.strip() and SHOW_THINKING)  # Thinking 行不在时, ⏺ 即段头标识
+        if _MD_STRUCT.match(first):
+            # 首行是 markdown 块结构(表格/标题/引用/代码围栏/列表), 切出会断结构 → 圆点独立行
+            if head:
+                parts.append(Text("⏺", style="bold bright_white"))
+            parts.append(Markdown(body.strip()) if md else Text(body.strip(), style="bright_white"))
+        else:
+            # Claude 同款: 圆点+首句同行, 续行整块进 markdown 顶格
+            dot = Text("⏺ ", style="bold bright_white") if head else Text("")
+            parts.append(dot + Text(first, style="bright_white"))
+            if rest:
+                parts.append(Markdown(rest) if md else Text(rest, style="bright_white"))
     return Group(*parts) if parts else Text("")
 
 
@@ -348,8 +358,7 @@ class ChatApp(App):
             log = self.query_one("#chatlog", RichLog)
             log.write(Text())  # 块间空行
             t = Text()
-            t.append(f"{USER_NAME} ❯ ", style="bold gold3 on grey23")
-            t.append(text, style="gold3 on grey23")  # 低对比底色条, 近似"透明背景"
+            t.append(text, style="gold3 on grey23")  # 无前缀, 金色暗底条区分用户消息(Claude 同款)
             log.write(t)
         else:
             self.query_one("#chatlog", RichLog).write(
@@ -427,17 +436,23 @@ class ChatApp(App):
             text_buf = ""
             turn_tokens = (0, 0)
             tool_t0 = {}  # tool_use_id -> 起始时刻, 算工具耗时
+            think_t0 = think_last = None  # thinking 首末时刻, 算思考耗时
+            n_tools = 0
             # 核心事件流: ("thinking",d) / ("text",d) / ("tool_start",id,name)
             #            / ("tool_result",id,name,input_json,output)
             for ev in self.agent.stream(msgs):
                 kind = ev[0]
                 if kind == "thinking":
+                    if think_t0 is None:
+                        think_t0 = time.monotonic()
+                    think_last = time.monotonic()
                     think_buf += ev[1]
                 elif kind == "text":
                     text_buf += ev[1]
                 elif kind == "tool_start":
                     tool_t0[ev[1]] = time.monotonic()
                 elif kind == "tool_result":
+                    n_tools += 1
                     # 段边界: 先把 thinking/正文定稿进 chatlog(正文到达时
                     # thinking 已折叠), 再打工具行 —— 对应 hermes 的
                     # _flush_stream + 工具 feed 行
@@ -489,6 +504,15 @@ class ChatApp(App):
         # 末段定稿进 chatlog(与 live 区同一样式)
         seg = _turn_renderable(think_buf, text_buf, fold=True)
         self.call_from_thread(self.log_render, seg)
+        # 回合摘要行(Claude 同款): 思考耗时 + 工具调用数
+        marks = []
+        if think_t0 is not None:
+            # 有 thinking 就显示(哪怕单 delta 不到 1s, 取 1s 起步); 没思考才跳过
+            marks.append(f"Thought for {max(1, round(think_last - think_t0))}s")
+        if n_tools:
+            marks.append(f"ran {n_tools} tool call{'s' if n_tools > 1 else ''}")
+        if marks:
+            self.call_from_thread(self.log_write, f"[dim]{', '.join(marks)}[/dim]")
         self.call_from_thread(self.live_hide)
         self.call_from_thread(self.turn_finished)
 
