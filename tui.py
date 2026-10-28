@@ -365,6 +365,12 @@ class ChatApp(App):
         if text.lower() in ("/resume", "/r"):
             self.resume_picker()
             return
+        if text.lower() in ("/new", "/n"):
+            if self.busy:
+                self.log_write("[dim]当前轮还在跑, 先 ctrl+c 打断再 /new[/dim]")
+                return
+            self.new_chat()
+            return
         if self.busy:
             # hermes busy_input_mode="interrupt": 忙时输入=打断当前轮, 文本排下一轮
             if not self._interrupt_pending:
@@ -482,7 +488,7 @@ class ChatApp(App):
         状态提示 + ctx 占用; set_busy 也走这里, 提示随忙/闲切换。"""
         self._last_tin = tin
         state = ("[yellow]⏵ 运行中 · ctrl+c 打断[/yellow]" if self.busy
-                 else "[dim]⏵⏵ /resume 恢复 · exit 退出[/dim]")
+                 else "[dim]⏵⏵ /new 新对话 · /resume 恢复 · exit 退出[/dim]")
         self.query_one("#ctx", Static).update(f"{state} [dim]· {ctx_bar(tin)}[/dim]")
 
     # 贴图走文件路径: [图片: 路径] 占位符(core/messages.user_content 转成 image 块)。
@@ -519,7 +525,22 @@ class ChatApp(App):
             self.log_write("[bold cyan]⏰ [定时任务触发][/bold cyan]")
             self.run_turn(prompt)
 
-    # ---- /resume ----
+    # ---- /new / /resume ----
+
+    def new_chat(self) -> None:
+        """新开一个对话: 清空消息/账本/续写目标, 清屏重绘欢迎横幅。
+
+        旧会话已每轮落盘, 这里只是 UI 和内存态归零 —— /resume 随时能找回。"""
+        self.state["messages"] = []
+        self.sess_path = None  # 解除续写目标, 下轮落盘时 new_session_file 另起新文件
+        self.agent.usage = {"input": 0, "output": 0, "calls": 0}  # 账本清零(与 loop 初始同款)
+        self.agent._last_prompt_tokens = None  # 压缩判定同步清零, 防旧 last_in 误触发新会话压缩
+        self._last_tin = 0
+        self.update_ctx(0)
+        log = self.query_one("#chatlog", RichLog)
+        log.clear()
+        log.write(f"[bold]mini-agent[/] (tools: {', '.join(self.agent.tools)})")
+        log.write(f"[dim]工作目录: {self.workdir}[/dim]\n")
 
     def do_resume(self, path) -> None:
         """恢复指定会话文件: 接回消息/账本/续写目标, 并回显历史。"""
