@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 
 from rich.console import Group
+from rich.markdown import Markdown
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
@@ -43,8 +44,8 @@ from cron_jobs import start_scheduler
 # - thinking: dim 灰逐行流式(hermes _stream_reasoning_delta), 正文到达即折叠定稿
 # - 正文: accent 标签分段, 逐段定稿(hermes _emit_stream_text 的 turn boundary flush)
 # - token: 紧凑格式(hermes format_token_count_compact 同语义) + ctx/压缩计数
-REASONING_LINES = 10  # 正文到达后 thinking 折叠保留行数(hermes reasoning_full=False 的 10 行)
-LIVE_REASONING_LINES = 6  # live 流式区 thinking 只显示尾部几行, 防长思考刷屏
+REASONING_LINES = 3  # 正文到达后 thinking 折叠保留行数
+LIVE_REASONING_LINES = 3  # live 流式区 thinking 只显示尾部几行, 防长思考刷屏
 
 
 def fmt_tokens(n: int) -> str:
@@ -125,14 +126,15 @@ def _fold_thinking(think: str) -> str:
 
 AGENT_NAME = os.environ.get("AGENT_NAME", "mini-agent")  # 正文前缀, .env 可配
 USER_NAME = os.environ.get("USER_NAME", "user")  # 用户消息前缀, .env 可配
+SHOW_THINKING = os.environ.get("SHOW_THINKING", "0").lower() in ("1", "true", "yes", "on")  # .env 可配, 默认不显示
 
 
-def _turn_renderable(think: str, body: str, fold: bool = False):
+def _turn_renderable(think: str, body: str, fold: bool = False, md: bool = True):
     """一轮流式内容渲染成 Rich 组合, live 区和 chatlog 定稿共用同一样式。
     Claude Code 风格(抄它的配色与层级): thinking 树形缩进(dark_khaki),
-    正文 `名字> ` 前缀引导(gold3), 整行 **粗体** 行渲染成金色小标题。"""
+    正文 `名字> ` 引导行 + markdown 定稿渲染(md=True) / 纯文本粗排(md=False)。"""
     parts = []
-    if think.strip():
+    if think.strip() and SHOW_THINKING:  # .env SHOW_THINKING=0 时 UI 不渲染 thinking(数据层仍全量记录)
         collapsed = fold or bool(body.strip())
         n = max(1, len(think) // 3)  # ~tokens 粗估, est_tokens 同口径(chars/3)
         parts.append(Text("⌐ ▼ Thinking", style="dark_khaki")
@@ -145,18 +147,12 @@ def _turn_renderable(think: str, body: str, fold: bool = False):
                       for i, l in enumerate(lines)),
             style="dark_khaki italic"))
     if body.strip():
-        prefix = f"{AGENT_NAME}> "
-        pad = " " * len(prefix)
-        t = Text()
-        for i, line in enumerate(body.strip().splitlines()):
-            t.append(prefix if i == 0 else pad, style="white")  # 名字与正文同色, 不抢眼
-            s = line.strip()
-            if s.startswith("**") and s.endswith("**") and len(s) > 4:
-                t.append(s[2:-2], style="bold gold3")  # 小标题同 gold3, 和用户行一个色系
-            else:
-                t.append(line, style="white")
-            t.append("\n")
-        parts.append(t)
+        parts.append(Text(f"{AGENT_NAME}> ", style="bold bright_white"))  # 引导行独立一行
+        if md:  # 定稿: 整块 markdown 渲染(表格/代码块/粗体/列表)
+            parts.append(Markdown(body.strip()))
+        else:  # live 流式: 纯文本粗排, 半截表格/未闭合代码块不抖
+            parts.append(Text(body.strip(), style="bright_white"))
+    return Group(*parts) if parts else Text("")
     return Group(*parts) if parts else Text("")
 
 
@@ -247,9 +243,20 @@ class ResumeScreen(ModalScreen):
 
 
 class ChatLog(RichLog):
-    """chatlog 不可聚焦: 点历史/滚轮不抢焦点, 输入框永远持有光标(Claude 同款)。"""
+    """chatlog 不可聚焦: 点历史/滚轮不抢焦点, 输入框永远持有光标(Claude 同款)。
+    write 后强制滚底: Textual 的 scroll_end(immediate=False) 排队到下一帧,
+    与 virtual_size reflow 竞态, 长内容时常滚不够, 新消息沉在视口下。"""
 
     can_focus = False
+
+    def write(self, *args, **kwargs):
+        result = super().write(*args, **kwargs)
+        scroll_end = kwargs.get("scroll_end")
+        if scroll_end is None and len(args) >= 5:  # 内部 on_resize 按 5 个位置参数重放
+            scroll_end = args[4]
+        if scroll_end is not False and self.is_mounted:
+            self.scroll_end(animate=False, immediate=True, x_axis=False)  # 竞态兕底
+        return result
 
 
 class ChatApp(App):
@@ -331,18 +338,22 @@ class ChatApp(App):
 
     def log_render(self, renderable) -> None:
         """渲染定稿: Rich renderable(Group+Text 组合)直接入 chatlog。"""
-        self.query_one("#chatlog", RichLog).write(renderable)
+        log = self.query_one("#chatlog", RichLog)
+        log.write(Text())  # 块间空行
+        log.write(renderable)
 
     def chat_line(self, who: str, text: str) -> None:
         """聊天行: 用户消息金子+暗底色条(Claude Code 同款视觉); AI 正文白字无底。"""
         if who == "user":
+            log = self.query_one("#chatlog", RichLog)
+            log.write(Text())  # 块间空行
             t = Text()
             t.append(f"{USER_NAME} ❯ ", style="bold gold3 on grey23")
             t.append(text, style="gold3 on grey23")  # 低对比底色条, 近似"透明背景"
-            self.query_one("#chatlog", RichLog).write(t)
+            log.write(t)
         else:
             self.query_one("#chatlog", RichLog).write(
-                Text(text, justify="left", style="white")
+                Text(text, justify="left", style="bright_white")
             )
 
     def set_busy(self, busy: bool) -> None:
@@ -504,7 +515,8 @@ class ChatApp(App):
         lines = think.strip().splitlines()
         if lines and not text.strip() and len(lines) > LIVE_REASONING_LINES:
             think = f"… 前 {len(lines) - LIVE_REASONING_LINES} 行\n" + "\n".join(lines[-LIVE_REASONING_LINES:])
-        self.query_one("#live", Static).update(_turn_renderable(think, text, fold=False))
+        self.query_one("#live", Static).update(
+            _turn_renderable(think, text, fold=False, md=False))
 
     def live_hide(self) -> None:
         """隐藏流式区(组件保留, 只藏不删)。定稿已分段写进 chatlog。"""

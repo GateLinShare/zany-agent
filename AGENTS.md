@@ -71,6 +71,8 @@ uv run eval/main.py [name]      # 评测(用例在 evals/cases.jsonl)
 |---|---|---|
 | "一处装配"的成品组装方式(它 `agent.py:3605` create_deep_agent) | `libs/code/deepagents_code/agent.py` | `agent.py` 的 `build_agent()` |
 | 成品功能面：TUI + 会话恢复 + 模型配置 + task/skill/mcp | `tui/` `sessions.py` `model_config.py` | `tui.py`、`core/sessions.py`、`.env` |
+| markdown 渲染策略：流式期间就用 Textual MarkdownStream 增量写(0.1s 节流)+结束后整段重渲(绕 textual#6518) | `tui/widgets/messages.py:1436` AssistantMessage | 我们取折中：live 粗排纯文本(`_turn_renderable(md=False)`) + 定稿 rich Markdown 渲染(`tui.py:130`) |
+| 对照坑：textual 8.x RichLog.write 的 scroll_end(immediate=False) 与 virtual_size reflow 竞态，新内容常沉在视口下 —— ChatLog.write 覆盖后补 scroll_end(immediate=True) 兕底 | textual `_rich_log.py:282` | `tui.py` ChatLog 覆盖 write；.env SHOW_THINKING(默认关)控制 thinking 是否上屏，数据层始终全量记录 |
 
 ### 2.3 pi（工具与评测的直接借鉴源）
 
@@ -84,6 +86,7 @@ uv run eval/main.py [name]      # 评测(用例在 evals/cases.jsonl)
 | **edit 模糊匹配兜底**：NFKC/智能引号/破折号/行尾空白归一化重试；命中后只回写覆盖到的行，未动行保留原字节 | 同上 `normalizeForFuzzyMatch` / `applyReplacementsPreservingUnchangedLines` | `core/tools.py` `_fuzzy` / `_overlay` |
 | 极简内核哲学：内置工具极少，其余外置(它 8 个内置+extension，我们 5 个内置+MCP/skills/task) | `packages/coding-agent/src/core/tools/` | 整体设计取向 |
 | 评测风格：JSONL 用例(seed/query/checks) → 判分 | `packages/evals/` | `eval/main.py` + `evals/cases.jsonl` |
+| markdown 渲染：pi-tui 自研 Markdown 组件(marked+highlight.js→ANSI)，每 delta 全量重渲、未闭合 fence 裁剪防闪烁 | `packages/tui/src/components/markdown.ts:236` | 对照参考：若流式也要渲染，先看 dcode 的 MarkdownStream 节流方案 |
 
 ### 2.4 PenguinHarness（平台型参照，非代码借鉴）
 
