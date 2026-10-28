@@ -33,10 +33,10 @@ from agent import build_agent, text_of
 from core.messages import user_content, est_tokens
 from core.mcp import config_stamp
 from core.sessions import (
-    SESSIONS_DIR,
     list_sessions,
     load_session_data,
     new_session_file,
+    project_dir,
     save_session,
 )
 from cron_jobs import start_scheduler
@@ -318,12 +318,12 @@ class ChatApp(App):
         log.write(f"[dim]工作目录: {self.workdir}[/dim]\n")  # 快捷键提示在输入框下常驻行, 不占横幅
         if self.resume_id is not None:  # uv run tui.py -r [id] 启动即恢复
             if self.resume_id:
-                path = SESSIONS_DIR / f"{self.resume_id}.json"
+                path = project_dir(self.workdir) / f"{self.resume_id}.json"
                 if not path.exists():
-                    self.log_write(f"[red]会话 {self.resume_id} 不存在[/red]")
+                    self.log_write(f"[red]会话 {self.resume_id} 不存在(仅列本工作目录的会话)[/red]")
                     return
             else:
-                picks = list_sessions()
+                picks = list_sessions(self.workdir)
                 if not picks:
                     self.log_write("[dim]sessions/ 下没有历史会话[/dim]")
                     return
@@ -516,7 +516,7 @@ class ChatApp(App):
             }
         )
         if self.sess_path is None:
-            self.sess_path = new_session_file()
+            self.sess_path = new_session_file(self.workdir)
         try:
             save_session(
                 self.sess_path, self.state["messages"], self.agent.usage, self.state["marks"]
@@ -659,9 +659,9 @@ class ChatApp(App):
         self.log_write("")
 
     def resume_picker(self) -> None:
-        picks = list_sessions()
+        picks = list_sessions(self.workdir)
         if not picks:
-            self.log_write("[dim]sessions/ 下没有历史会话[/dim]")
+            self.log_write("[dim]本工作目录还没有历史会话[/dim]")
             return
 
         def done(idx) -> None:
@@ -700,15 +700,16 @@ def _headless(argv: list[str]) -> None:
         raise SystemExit("无头模式需要 prompt: -p \"问题\" 或 stdin 传入")
 
     agent = build_agent(os.getcwd())
+    workdir = os.getcwd()
     messages = []
     sess_path = None
     if resume_id is not None:
         if resume_id:
-            sess_path = SESSIONS_DIR / f"{resume_id}.json"
+            sess_path = project_dir(workdir) / f"{resume_id}.json"
         else:
-            files = sorted(SESSIONS_DIR.glob("*.json"))
+            files = sorted(project_dir(workdir).glob("*.json"))
             if not files:
-                raise SystemExit("sessions/ 下没有历史会话")
+                raise SystemExit("本工作目录没有历史会话")
             sess_path = files[-1]
         if sess_path.exists():
             data = load_session_data(sess_path)
@@ -734,7 +735,7 @@ def _headless(argv: list[str]) -> None:
         print("(已打断, 以上是收到的部分内容)", file=sys.stderr)
     print(text_of(messages[-1]))
     if sess_path is None:
-        sess_path = new_session_file()
+        sess_path = new_session_file(workdir)
     save_session(sess_path, messages, agent.usage)
     u = agent.usage
     print(f"(tokens: in {u['input']:,} / out {u['output']:,}, {u['calls']} calls)", file=sys.stderr)
