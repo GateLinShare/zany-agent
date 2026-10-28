@@ -28,7 +28,7 @@ from textual.widgets import OptionList, RichLog, Static, TextArea
 from textual.widgets.option_list import Option
 
 from agent import build_agent, text_of
-from core.messages import user_content
+from core.messages import user_content, est_tokens
 from core.mcp import config_stamp
 from core.sessions import (
     SESSIONS_DIR,
@@ -527,8 +527,13 @@ class ChatApp(App):
         self.state["messages"] = data["messages"]
         self.sess_path = path  # 原地续写原会话文件
         if data.get("usage"):
-            self.agent.restore(data["usage"])  # 接回旧账本+压缩判定状态
-            self.update_ctx(self.agent.usage.get("last_in") or 0)  # 进度条立即恢复(原要对话一轮才显示)
+            self.agent.restore(data["usage"])
+        # 进度条立即恢复(原要对话一轮才显示); 旧格式会话无 last_in 时用 est 兼底
+        # (口径对齐真实 prompt tokens: system prompt + messages)
+        tin = self.agent.usage.get("last_in") or est_tokens(
+            [{"role": "system", "content": self.agent._system()}]
+            + self.state["messages"])
+        self.update_ctx(tin)
         self.log_write(f"[dim]已恢复 {path.stem} ({len(self.state['messages'])} 条消息):[/dim]")
         for m in self.state["messages"]:  # 回显历史（工具消息跳过）
             t = text_of(m).strip()
