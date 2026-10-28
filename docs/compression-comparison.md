@@ -35,7 +35,7 @@
 | 优化 | 学谁 | 理由 | 代价 |
 |---|---|---|---|
 | 1. 手动 `/compact [focus]` | pi / hermes | 压缩判定再准也不如用户自己知道"该压了"；focus 参数还能引导摘要重点 | ~30 行（复用 `maybe_summarize`，force 绕判定） |
-| 2. 摘要 prompt 结构化 + 迭代更新式 | pi(`UPDATE prompt`) / hermes | 现在的一句话 prompt 全量重写，二次压缩时旧摘要的细节会流失；PRESERVE+ADD+UPDATE 合并式更稳 | 改 `SUMMARY_PROMPT`，~20 行 |
+| 2. ~~摘要 prompt 结构化 + 迭代更新式~~ **已实现**(学 pi / hermes):固定章节模板(Goal/Constraints/Progress/Decisions/Next Steps/Critical Context,要求保留精确值) + 有旧摘要时走 PRESERVE+ADD+UPDATE 合并(REAL 模型验证:旧摘要的 In Progress 条目被正确 UPDATE 成 Done 并合入新 commit 号);二次压缩不再全量重写丢细节 | pi(`UPDATE prompt`) / hermes | ~~理由~~ 已落地 `core/summarize.py` | 已完成 |
 | 3. preflight 兜底（大 tool_result 追加后） | hermes（工具循环中 pre-API 检查） | execute 输出很大时 postflight 滞后一轮，下一轮请求可能直接超窗吃 API 错误；我们目前靠"错误即文本"自愈，但浪费一轮 | `stream()` 里工具回填后加一次判定，~10 行 |
 | 4. overflow 感知重试 | pi / deepagents | provider 报 context overflow 时自动压缩后重试一次，把"错误即文本"升级为"错误即恢复" | 需识别 overflow 错误模式，中等 |
 | 5. 旧 tool_result 无 LLM 瘦身 | hermes Phase 1 | 不调 LLM 就能省大量 token（旧 tool_result 换单行）；我们 `_flat` 只在摘要输入时用，线上 messages 不动 | 中等，需改动 messages 结构 |
@@ -43,4 +43,9 @@
 
 ## 四、结论
 
-我们的压缩是"**判定学 hermes、结构走自己路**"：触发/防抖/熔断这套纪律完整对标 hermes（且防抖同口径比它更严），但压缩结构选了与三家都不同的**改写式原地替换**——这是"无 checkpointer、sessions 覆盖写"约束下的正确取舍。差距集中在**摘要质量层**（结构化 prompt、迭代更新）和**入口完备性**（无手动命令、无 preflight 兜底），都属于小改动；而 hermes/dcode 的重型机制（会话轮转、事件视图、offload 体系）依赖各自的持久化基建，与我们"协议原生、零框架"的定位冲突，不该抄。
+我们的压缩是"**判定学 hermes、摘要学 pi、结构走自己路**":触发/防抖/熔断这套纪律完整对标 hermes
+(且防抖同口径比它更严);摘要 prompt 已升级为 pi 的 checkpoint 结构化格式 + 迭代更新式
+(2026-10-28);但压缩结构选了与三家都不同的**改写式原地替换**--这是"无 checkpointer、
+sessions 覆盖写"约束下的正确取舍。剩余差距集中在**入口完备性**(无手动命令、无 preflight
+兜底)和 overflow 感知重试,都属于小改动;而 hermes/dcode 的重型机制(会话轮转、事件视图、
+offload 体系)依赖各自的持久化基建,与我们"协议原生、零框架"的定位冲突,不该抄。

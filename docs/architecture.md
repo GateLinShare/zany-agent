@@ -209,9 +209,24 @@ def maybe_summarize(model, messages, prompt_tokens=None,
   切到摘要区、tool_use 留在保留区,API 直接报孤儿结果错误。所以切分点向后滑动
   到非 tool_result 开头的消息为止。
 - **保留尾部**:最近 20 条原样保留(正在进行的任务现场),更早的压成一条 user
-  消息。摘要 prompt 明确要求保留:目标与约束、关键操作与结论、未完成事项、文件路径。
+  消息。
 - **一维化**:喂给摘要模型前把 content blocks 拍平 —— thinking 块丢弃、image 标记
   占位、tool_use 只留名字、tool_result 留前 500 字,否则摘要请求本身可能超上下文。
+
+### 6.2.1 摘要 prompt:结构化 + 迭代更新(学 pi/ hermes)
+
+摘要消息结构固定:`{"role": "user", "content": SUMMARY_TAG + "\n\n" + 摘要}`,
+前缀常量 `SUMMARY_TAG`(落盘识别/迭代更新都依赖这个约定)。
+
+- **固定章节模板**(pi checkpoint 格式):`## Goal / Constraints & Preferences /
+  Progress(Done/In Progress/Blocked) / Key Decisions / Next Steps / Critical Context`,
+  并要求保留精确的文件路径/命令/报错原文 —— 泛泛的"讨论了X"没用,精确值才是
+  后续会话最依赖的东西。
+- **迭代更新**:stale 区里找旧摘要(`_prev_summary_idx`),找到就走 UPDATE 模式:
+  `<previous>` = 上次摘要正文,`<conversation>` = 其后全部未摘要的消息(**含上次
+  保尾** —— 它们上次没被摘要过,不给就丢);指示模型 PRESERVE 仍然成立的信息、
+  ADD/UPDATE 新进展。避免全量重写把旧摘要细节流失(改写式的固有风险,靠迭代
+  对冲)。首次压缩走全量提炼。
 
 ### 6.3 防抖与熔断(loop._compact_step)
 

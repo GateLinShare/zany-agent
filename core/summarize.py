@@ -9,13 +9,47 @@
 - preflight 兜底: 拿不到真实值(None/会话恢复首轮)回落 字符数/3 粗估,
   字符数天然高估, 往"提前压缩"的方向错, 保守方向正确。
 不引 tokenizer, 阈值本身就是粗粒度的。
+
+摘要 prompt 结构学 pi(compaction.ts 的 checkpoint 格式), 迭代更新学 hermes:
+有上次摘要时不全量重写, 而是 PRESERVE+ADD+UPDATE 合并 —— 防二次压缩时
+旧摘要细节流失(改写式的固有风险, 靠迭代更新对冲)。
+
+摘要消息的结构约定(压缩产物, _prev_summary_idx 靠它识别):
+    {"role": "user", "content": f"{SUMMARY_TAG}\\n\\n{summary}"}
 """
 
 import os
 
 from .messages import est_tokens
 
-SUMMARY_PROMPT = "把以下对话历史压缩成一份摘要, 保留: 用户的目标与约束、已完成的关键操作与结论、未完成事项、文件路径。直接输出摘要正文。\n\n"
+# 摘要消息前缀(常量化的原因: 落盘识别/迭代更新都依赖这个约定, 不容两处漂移)
+SUMMARY_TAG = "(以下是此前对话的摘要)"
+
+# 固定章节模板: 精确值(路径/命令/报错原文)是后续会话最依赖的东西,
+# 泛泛的"讨论了X"没用, pi/hermes 的摘要 prompt 都明确要求保留精确值。
+_SUMMARY_SECTIONS = """摘要结构固定为以下章节(无内容的省略, 不要额外开场白):
+## Goal
+## Constraints & Preferences
+## Progress
+(Done / In Progress / Blocked 三小节, 已完成条目附关键结果)
+## Key Decisions
+## Next Steps
+## Critical Context
+(文件路径、命令、报错原文、commit 号等精确值)
+要求: 保留精确的文件路径/命令/报错信息; 用对话的主要语言书写; 直接输出摘要正文。
+"""
+
+SUMMARY_PROMPT = (
+    "把以下对话历史压缩成一份摘要, 保留: 用户的目标与约束、已完成的关键操作"
+    "与结论、未完成事项、文件路径。\n\n" + _SUMMARY_SECTIONS + "\n\n"
+)
+
+UPDATE_SUMMARY_PROMPT = (
+    "你在更新一份既有的上下文摘要: <previous> 是上一次的摘要, <conversation> "
+    "是其之后发生的新对话。合并成一份完整的新摘要 —— previous 中仍然成立的信息"
+    "原样保留, 新进展合入对应章节, 已完成或被推翻的条目相应改写。\n\n"
+    + _SUMMARY_SECTIONS + "\n\n"
+)
 
 # .env 可配(agent.py 先于 core 导入加载): 触发点 = 窗口上限 × 比例, 未配置 0.6
 TRIGGER_TOKENS = int(int(os.environ.get("ANTHROPIC_CONTEXT_TOKENS", 200000))
@@ -51,13 +85,39 @@ def maybe_summarize(
     if cut == 0:
         return False, tokens, est_before, est_before
     stale = messages[:cut]
-    transcript = "\n".join(
-        f"[{m['role']}] {m['content'] if isinstance(m['content'], str) else _flat(m['content'])}"
-        for m in stale
-    )
-    summary = model.complete("", SUMMARY_PROMPT + transcript)
-    messages[:] = [{"role": "user", "content": f"(以下是此前对话的摘要)\n\n{summary}"}] + messages[cut:]
+    prev_idx = _prev_summary_idx(stale)
+    if prev_idx is None:  # 首次压缩: 全量提炼
+        prompt = SUMMARY_PROMPT + _transcript(stale)
+    else:  # 迭代更新: 旧摘要 PRESERVE, 其后的新对话 ADD/UPDATE 进去
+        prompt = (UPDATE_SUMMARY_PROMPT
+                  + "<previous>\n" + _msg_text(stale[prev_idx]) + "\n</previous>\n\n"
+                  + "<conversation>\n" + _transcript(stale[prev_idx + 1:]) + "\n</conversation>")
+    summary = model.complete("", prompt)
+    messages[:] = [{"role": "user", "content": f"{SUMMARY_TAG}\n\n{summary}"}] + messages[cut:]
     return True, tokens, est_before, est_tokens(messages)
+
+
+def _transcript(msgs: list[dict]) -> str:
+    return "\n".join(
+        f"[{m['role']}] {m['content'] if isinstance(m['content'], str) else _flat(m['content'])}"
+        for m in msgs
+    )
+
+
+def _msg_text(m: dict) -> str:
+    c = m.get("content")
+    if isinstance(c, str):
+        return c
+    return _flat(c) if isinstance(c, list) else ""
+
+
+def _prev_summary_idx(stale: list[dict]) -> int | None:
+    """stale 里上次压缩留下的摘要消息(取最新一条); 没有则 None → 走全量提炼。"""
+    for i in range(len(stale) - 1, -1, -1):
+        m = stale[i]
+        if m.get("role") == "user" and _msg_text(m).startswith(SUMMARY_TAG):
+            return i
+    return None
 
 
 def _flat(blocks: list) -> str:
