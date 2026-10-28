@@ -33,6 +33,7 @@ core/
 | **账本当场接** | 真实 usage 只在流式聚合时能拿到（message_start/message_delta），聚合时顺手记账；展示用真实值，est 粗估只做压缩触发兜底 |
 | **压缩是 postflight** | 对话完（每轮响应后）用真实 prompt_tokens 判定触发（hermes 语义）；防抖（降幅<10%连续两次停）和熔断（摘要失败即停）不可拆，防抖必须同口径 est vs est |
 | **MCP 快速认输** | pypi 不通的环境里 uvx 会卡几分钟：probe 整体 wait_for 15s、工具调用 60s，超时跳过；stdio 子进程 stderr 收 devnull（MCP_STDERR=1 透传）；TUI 界面先起、MCP 后台补（build_agent(with_mcp=False) + add_tools），except 不写 BaseException 防 Ctrl-C 被吞 |
+| **.env 随仓库走** | 用户明确要求：内网私有仓库，.env(含密钥)直接提交，方便多机部署；不要往 .gitignore 加 .env、不要 git rm --cached .env（曾自作主张被纠正） |
 
 常用命令：
 
