@@ -66,7 +66,7 @@ uv run eval/main.py [name]      # 评测(用例在 evals/cases.jsonl)
 | edit_file 核心语义：count + 唯一性校验 + replace | `backends/filesystem.py:521` | `core/tools.py` `_edit` 精确分支 |
 | task 子代理语义：子代理无 task、只回传结论 | `middleware/subagents.py` | `core/subagent.py` |
 | skills 渐进披露：清单常驻、SKILL.md 按需读 | `middleware/` skills 部分 | `core/skills.py` |
-| 反面参照：压缩用非破坏 offload(依赖 checkpointer) | `libs/deepagents/.../summarize` | 我们选**改写式**(`core/summarize.py`)，因 .sessions/*.json 直接覆盖写无 checkpointer |
+| 反面参照：压缩用非破坏 offload(依赖 checkpointer) | `libs/deepagents/.../summarize` | 我们选**改写式**(`core/summarize.py`)，因 ~/.miniagent/sessions/*.json 直接覆盖写无 checkpointer |
 
 框架本身（LangGraph/middleware/checkpointer）已被**砍掉**——这是本项目的核心决策：依赖协议实现，不依赖编排框架。
 
@@ -104,7 +104,7 @@ uv run eval/main.py [name]      # 评测(用例在 evals/cases.jsonl)
 | 对照点 | 它 | 我们 |
 |---|---|---|
 | 单协议贯穿 | OmniMessage 同时是接口/Trace/引擎消息 | Anthropic 原生消息同时是模型输入/落盘格式 |
-| 文件即状态 | `~/.penguin/data` 追加式 JSONL Trace | `.sessions/*.json` 直接覆盖写 |
+| 文件即状态 | `~/.penguin/data` 追加式 JSONL Trace | `~/.miniagent/sessions/*.json` 直接覆盖写 |
 | 引擎零业务 | core 不认识厂商 SDK 和 UI | `core/loop.py` 不区分工具来源、UI 用事件元组解耦 |
 
 ### 2.5 hermes-agent（进阶功能参照）
