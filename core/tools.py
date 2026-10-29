@@ -1,7 +1,9 @@
 """内置工具:ls / read_file / write_file / edit_file / execute。
 
 接口设计上唯一的坑:**文件工具以 workdir 为虚拟根**(/agent.py = 真实的
-workdir/agent.py),execute 却是真实 shell。这条约定写进 SYSTEM_PROMPT,
+workdir/agent.py),execute 却是真实 shell。这条约定写进 SYSTEM_PROMPT;
+工作目录外的既有文件可用真实绝对路径直读/直改(_resolve 逃生口),
+新建文件仍走 execute。
 不在工具层做路径重写 —— 重写会掩盖两套路径的不一致,不如让规则显式。
 
 防爆层(学 pi/hermes, 逐项见 docs/tools-comparison.md 优化清单):
@@ -85,12 +87,24 @@ class _Ledger:
 
 
 def _resolve(workdir: str, path: str) -> Path:
-    """虚拟根路径解析: /agent.py -> workdir/agent.py; 拒绝越出 workdir。"""
+    """虚拟根路径解析: /agent.py -> workdir/agent.py; ../ 越界仍拒绝。
+
+    逃生口: 显式绝对路径在虚拟根下不存在、但真实文件系统存在时, 按真实路径用 ——
+    execute 本就是真实 shell, 这里让四件套也能碰到工作目录外的既有文件。
+    ponytail: 逃生口只认已存在的路径, 工作目录外建新文件仍走 execute。
+    """
     root = Path(workdir).resolve()
     p = (root / str(path).lstrip("/")).resolve()
     if not p.is_relative_to(root):
-        raise ValueError(f"路径越界: {path} (文件工具以工作目录为根)")
-    return p
+        raise ValueError(f"路径越界: {path} (文件工具以工作目录为根; 工作目录外用真实绝对路径)")
+    if p.exists():
+        return p
+    raw = str(path)
+    if raw.startswith("/"):
+        real = Path(raw).resolve()
+        if real.exists():
+            return real
+    raise FileNotFoundError(f"不存在: {path} (虚拟根解析为 {p}; 工作目录外的既有文件用真实绝对路径, 新建文件用 execute)")
 
 
 def _truncate(text: str) -> str:
