@@ -751,6 +751,9 @@ def _headless(argv: list[str]) -> None:
 
 
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
+        print('用法: tui.py [-r <会话id>] | [-p "任务"]')
+        return
     if len(sys.argv) > 1 and sys.argv[1] == "-p":
         _headless(sys.argv[2:])
         return
