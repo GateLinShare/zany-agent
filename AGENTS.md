@@ -41,6 +41,8 @@ core/
 
 git 分支约定（用户定的）：master 的提交要同步到 develop —— master 上提交后，
 merge master 进 develop 再 push 两个分支；develop 上自己的提交不反向进 master。
+develop 分支的独立工作目录在 `/data01/tsn/code/tsn_files/miniagent-develop`（master 在
+`tsn_files/miniagent`）：push 完要去那边 `git pull --ff-only` 同步到最新。
 
 常用命令：
 
