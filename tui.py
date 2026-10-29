@@ -207,6 +207,26 @@ class ChatPrompt(TextArea):
         self._last_char_ts = 0.0
         self._run = 0
 
+    def _batch_recover(self) -> None:
+        """undo/redo 批量崩溃后的钳位兜底。"""
+        self.move_cursor(self.document.end)
+        self._build_highlight_map()
+        self.post_message(self.Changed(self))
+
+    def action_undo(self) -> None:
+        try:
+            super().action_undo()
+        except ValueError:
+            # ponytail: textual 8.2.8 _undo_batch 先缩文档再 _refresh_size, 滚动条
+            # watcher 拿旧光标查换行表越界(撤销/重做大段粘贴必崩); 上游升级后可删
+            self._batch_recover()
+
+    def action_redo(self) -> None:
+        try:
+            super().action_redo()
+        except ValueError:
+            self._batch_recover()
+
     async def _on_key(self, event) -> None:
         if event.key == "enter":
             event.prevent_default()
