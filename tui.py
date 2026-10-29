@@ -325,7 +325,7 @@ class ChatApp(App):
             else:
                 picks = list_sessions(self.workdir)
                 if not picks:
-                    self.log_write("[dim]sessions/ 下没有历史会话[/dim]")
+                    self.log_write("[dim].sessions/ 下没有历史会话[/dim]")
                     return
                 path = picks[0][0]
             self.do_resume(path)
@@ -466,7 +466,9 @@ class ChatApp(App):
                     # 段边界: 先把 thinking/正文定稿进 chatlog(正文到达时
                     # thinking 已折叠), 再打工具行 —— 对应 hermes 的
                     # _flush_stream + 工具 feed 行
-                    if think_buf.strip() or text_buf.strip():
+                    # 只在真有可见内容(SHOW_THINKING=0 时 thinking 不算)才定稿,
+                    # 否则 log_render 会画"块间空行"+空块 → 工具行之间冒空行
+                    if (think_buf.strip() and SHOW_THINKING) or text_buf.strip():
                         seg = _turn_renderable(think_buf, text_buf, fold=True)
                         self.call_from_thread(self.log_render, seg)
                         think_buf, text_buf = "", ""
@@ -519,13 +521,19 @@ class ChatApp(App):
             self.sess_path = new_session_file(self.workdir)
         try:
             save_session(
-                self.sess_path, self.state["messages"], self.agent.usage, self.state["marks"]
+                self.sess_path,
+                self.state["messages"],
+                self.agent.usage,
+                self.state["marks"],
+                self.workdir,
             )
         except Exception as e:
             self.call_from_thread(self.log_write, f"[dim](会话保存失败: {e})[/dim]")
-        # 末段定稿进 chatlog(与 live 区同一样式)
-        seg = _turn_renderable(think_buf, text_buf, fold=True)
-        self.call_from_thread(self.log_render, seg)
+        # 末段定稿进 chatlog(与 live 区同一样式); 空段不画(同上, 防多余空行)
+        if (think_buf.strip() and SHOW_THINKING) or text_buf.strip():
+            self.call_from_thread(
+                self.log_render, _turn_renderable(think_buf, text_buf, fold=True)
+            )
         # 回合摘要行(Claude 同款): 思考耗时 + 工具调用数
         marks = []
         if think_t0 is not None:
@@ -736,7 +744,7 @@ def _headless(argv: list[str]) -> None:
     print(text_of(messages[-1]))
     if sess_path is None:
         sess_path = new_session_file(workdir)
-    save_session(sess_path, messages, agent.usage)
+    save_session(sess_path, messages, agent.usage, workdir=workdir)
     u = agent.usage
     print(f"(tokens: in {u['input']:,} / out {u['output']:,}, {u['calls']} calls)", file=sys.stderr)
     print(f"(session: {sess_path.stem})", file=sys.stderr)
