@@ -179,7 +179,7 @@ task 子代理 = "把再建一个 Agent 实例包装成工具":子代理拿同�
 
 两种流派:非破坏式(原文 offload 到私有状态,依赖 checkpointer 恢复)vs
 改写式(直接把较早历史替换成一条摘要消息)。**持久化模型决定选型**:本项目
-sessions/*.json 覆盖写、没有 checkpointer,改写式的结果天然就在 messages 里,
+.sessions/*.json 覆盖写、没有 checkpointer,改写式的结果天然就在 messages 里,
 落盘/恢复零额外依赖;全量原文仍留在历史 session 文件里。
 
 三个实现细节:
