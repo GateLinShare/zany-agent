@@ -56,9 +56,15 @@ class Agent:
         self._interrupt_requested = None
 
     def _system(self) -> str:
-        """每轮重读 AGENTS.md —— 用户改记忆不用重启。"""
+        """每轮重读 AGENTS.md(项目记忆) + ~/.miniagent/USER.md(个人记忆) —— 改记忆不用重启。"""
+        s = self.system_base
         mem = Path(self.workdir) / "AGENTS.md"
-        return self.system_base + (f"\n\n# 项目记忆(AGENTS.md)\n{mem.read_text(encoding='utf-8')}" if mem.exists() else "")
+        if mem.exists():
+            s += f"\n\n# 项目记忆(AGENTS.md)\n{mem.read_text(encoding='utf-8')}"
+        user_mem = Path.home() / ".miniagent" / "USER.md"
+        if user_mem.exists():
+            s += f"\n\n# 个人记忆(USER.md)\n{user_mem.read_text(encoding='utf-8')}"
+        return s
 
     def _schemas(self) -> list[dict]:
         return [t.schema() for t in self.tools.values()]
