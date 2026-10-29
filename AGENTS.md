@@ -39,6 +39,9 @@ core/
 | **回合侧账 marks** | Thought/tool 计数是运行时局部变量, Anthropic 消息里没有 → 会话文件顶层 `marks=[{at, thought, tools}]`, at=回合结束时的消息条数做对齐锚；恢复回放按回合分组(真用户消息开组, tool_result 排除), 锚失配(压缩改写后)静默跳过不误导；老会话文件无 marks, 只有新回合才有 |
 | **风格包插拔** | 常驻行为(人格/规则)走 `styles/<name>.md` + `.env` 的 `PROMPT_PACKS`(逗号分隔), `agent.prompt_packs()` 全文拼进 SYSTEM_PROMPT(含 task 子代理)——常驻文本不能走 skills 的渐进披露(模型不会每轮自觉读全文)；按需技能仍走 `skills/` 渐进披露, 两条通道别混。不做通用 hook 系统, 等真实需求(skills/MCP 表达不了、loop.py 出现第 2 个特判)再抽 |
 
+git 分支约定（用户定的）：master 的提交要同步到 develop —— master 上提交后，
+merge master 进 develop 再 push 两个分支；develop 上自己的提交不反向进 master。
+
 常用命令：
 
 ```bash
