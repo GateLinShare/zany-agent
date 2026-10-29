@@ -345,7 +345,7 @@ class ChatApp(App):
             else:
                 picks = list_sessions(self.workdir)
                 if not picks:
-                    self.log_write("[dim].sessions/ 下没有历史会话[/dim]")
+                    self.log_write("[dim]~/.miniagent/sessions/ 下没有历史会话[/dim]")
                     return
                 path = picks[0][0]
             self.do_resume(path)
