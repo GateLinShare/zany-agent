@@ -7,7 +7,6 @@
 import os
 
 import anthropic
-import httpx2
 
 
 def make_client() -> anthropic.Anthropic:
@@ -17,9 +16,6 @@ def make_client() -> anthropic.Anthropic:
         api_key=key,
         # 代理只认 Authorization: Bearer, anthropic SDK 默认发 x-api-key
         default_headers={"Authorization": f"Bearer {key}"},
-        # API 是内网地址, 忽略终端里的代理变量(VSCode 带 SOCKS 代理会让 SDK 建连缺 socksio 直接炸)
-        # ponytail: 真要给这项目挂代理时, 这里改成显式 httpx.Client(proxy=...)
-        http_client=httpx2.Client(trust_env=False),
     )
 
 
