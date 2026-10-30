@@ -7,7 +7,11 @@
   # ponytail: 不做 judge 辅助模型, 要硬门禁时再加(hermes judge_goal 同款)。
 """
 
-GOAL_MAX_TURNS = 20  # goal 回合预算(hermes goals.py 同量级), 耗尽转 paused 可 resume
+import os
+
+# goal 回合预算(.env 可配), 耗尽转 paused 可 resume; import 时读 —— tui 先 import agent
+# (load_dotenv)再 import 本模块, 时序安全
+GOAL_MAX_TURNS = int(os.environ.get("GOAL_MAX_TURNS", "500"))
 
 RULES = """- 目标跨轮存活: 一轮做不完不用缩范围, 下轮宿主会自动续; 别把成功重定义成更小的任务。
 - 若这不是第一轮: 先把上轮归类 progress / verified wait / no-progress —— 状态复述和没执行的计划不算进度; verified wait = 轮询确认活着的具体进程/任务句柄, 没有句柄的干等算 no-progress。

@@ -28,7 +28,7 @@ def main():
 
     # 1. continuation prompt: objective 原样进投影(数据不是指令), 带轮次和审计规则
     p = continuation_prompt(state)
-    assert "把 eval 通过率提到 90%" in p and 'status="active"' in p and "3/20" in p
+    assert "把 eval 通过率提到 90%" in p and 'status="active"' in p and f"3/{GOAL_MAX_TURNS}" in p
     assert "no-progress" in p and "blocked" in p and "证据" in p
 
     # 2. update_goal 工具改的是同一个 dict(闭包共享, 零同步)
