@@ -123,6 +123,10 @@ uv run eval/main.py [name]      # 评测(用例在 evals/cases.jsonl)
 | 定时任务(cron/scheduled jobs) | `cron/`、`gateway/` 相关模块 |
 | 窄腰设计:核心不加工具,能力走 CLI+skill/插件 | 根 `AGENTS.md` "The Footprint Ladder" |
 
+> 注：另有内网 fork `/data01/tsn/code/hermes-space/hermes-agent`（Devil/hermes-space, dev 分支）,
+> 带本地 extend 改造（SKILLS_GUIDANCE 激进版已被改成保守版 + root 属主技能目录保护）。
+> 技能更新机制的调研（`tsn_files/hermes-agent-analysis/09`、`22`）实际参照的是这个 fork, 不是上游 v0.18.2。
+
 ### 2.6 codex（OpenAI codex-rs，Rust）
 
 - 仓库：`/data01/tsn/code/codex`（Rust, OpenAI）
