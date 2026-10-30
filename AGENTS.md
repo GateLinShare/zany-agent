@@ -20,7 +20,7 @@ core/
   summarize.py    上下文压缩(改写式, 80k 触发, 保尾 20 条)
   sessions.py     会话持久化:Anthropic 原生 dict 直接 JSON 落盘
   mcp.py          MCP 工具加载(单次连接即用即走)
-  skills.py       skills 清单注入 system prompt(渐进披露)
+  skills.py       skills 清单注入 system prompt(渐进披露; 项目 skills/、.claude/skills + 全局 ~/.miniagent/skills)
   messages.py     消息块辅助(text_of 等)
 ```
 
