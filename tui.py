@@ -390,13 +390,12 @@ class ChatApp(App):
         log.write(renderable)
 
     def chat_line(self, who: str, text: str) -> None:
-        """聊天行: 用户消息 `>` 前缀灰白字(Claude Code 同款, 无底色); AI 正文白字无底。"""
+        """聊天行: 用户消息暗灰底色条(近透明底)+灰白字; AI 正文白字无底。"""
         if who == "user":
             log = self.query_one("#chatlog", RichLog)
             log.write(Text())  # 块间空行
             t = Text()
-            t.append("> ", style="bold #d4d4d4")
-            t.append(text, style="#d4d4d4")
+            t.append(text, style="#d4d4d4 on grey23")  # 无前缀, 暗灰底条区分用户消息
             log.write(t)
         else:
             self.query_one("#chatlog", RichLog).write(
