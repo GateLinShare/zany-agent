@@ -395,7 +395,7 @@ class ChatApp(App):
             log = self.query_one("#chatlog", RichLog)
             log.write(Text())  # 块间空行
             t = Text()
-            t.append(text, style="#d4d4d4 on grey23")  # 无前缀, 暗灰底条区分用户消息
+            t.append(text, style="#d4d4d4 on grey27")  # 无前缀, 暗灰底条区分用户消息
             log.write(t)
         else:
             self.query_one("#chatlog", RichLog).write(
