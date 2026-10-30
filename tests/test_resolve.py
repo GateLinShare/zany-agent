@@ -33,7 +33,18 @@ def main():
     except FileNotFoundError as e:
         assert "真实绝对路径" in str(e)
 
-    print("ok: 4 checks passed")
+    # 5. write(create=True): 虚拟根内新文件放行新建(此前误报不存在)
+    assert _resolve(str(wd), "/core/new_file.py", create=True) == (wd / "core/new_file.py").resolve()
+
+    # 6. create=True 但真实文件系统父目录存在(外部新建) -> 仍报错, 走 execute 约定
+    outside_dir = Path(tempfile.mkdtemp())
+    try:
+        _resolve(str(wd), str(outside_dir / "new.md"), create=True)
+        raise AssertionError("外部新建应仍报错")
+    except FileNotFoundError:
+        pass
+
+    print("ok: 6 checks passed")
 
 
 if __name__ == "__main__":
