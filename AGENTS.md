@@ -30,7 +30,7 @@ core/
 |---|---|
 | **单协议** | Anthropic 原生消息格式是唯一协议：模型吃它、会话存它、回放原样带回，零转换层 |
 | **错误即文本** | 工具崩溃不抛异常，统一转 `"错误: ..."` 塞回 tool_result，让模型自愈 |
-| **虚拟根** | 文件工具以 workdir 为虚拟根（`/agent.py` = `workdir/agent.py`），execute 是真实 shell；规则写进 SYSTEM_PROMPT 不做路径重写。例外：虚拟根下不存在的显式绝对路径若真实存在则直读/直改（`_resolve` 逃生口，2026-10-29 加），工作目录外新建文件仍走 execute |
+| **虚拟根** | 文件工具以 workdir 为虚拟根（`/agent.py` = `workdir/agent.py`），execute 是真实 shell；规则写进各文件工具 description 不做路径重写。例外：虚拟根下不存在的显式绝对路径若真实存在则直读/直改（`_resolve` 逃生口，2026-10-29 加），工作目录外新建文件仍走 execute |
 | **账本当场接** | 真实 usage 只在流式聚合时能拿到（message_start/message_delta），聚合时顺手记账；展示用真实值，est 粗估只做压缩触发兜底 |
 | **压缩是 postflight** | 对话完（每轮响应后）用真实 prompt_tokens 判定触发（hermes 语义）；防抖（降幅<10%连续两次停）和熔断（摘要失败即停）不可拆，防抖必须同口径 est vs est |
 | **MCP 快速认输** | pypi 不通的环境里 uvx 会卡几分钟:probe 整体 wait_for 15s、工具调用 60s,超时跳过;stdio 子进程 stderr 收 devnull(MCP_STDERR=1 透传);TUI 界面先起、MCP 后台补(build_agent(with_mcp=False) + add_tools),except 不写 BaseException 防 Ctrl-C 被吞 |
@@ -46,6 +46,7 @@ merge master 进 develop 再 push 两个分支；develop 上自己的提交不�
 AGENTS.md 同样参与同步，两分支保持一致。
 develop 分支的独立工作目录在 `/data01/tsn/code/tsn_files/miniagent-develop`（master 在
 `tsn_files/miniagent`）：push 完要去那边 `git pull --ff-only` 同步到最新。
+**feishu gateway（gateway/ 目录 + docs/feishu-integration.md）只在 develop 实现，master 不加这些功能**（用户 2026-10-31 定）。
 
 常用命令：
 
