@@ -8,6 +8,7 @@ dependencies = [
     "mcp>=2.0,<3.0",
     "croniter>=2.0",
     "textual>=1.0",
+    "socksio>=1.0.0",
 ]
 
 # UV_PIP_INDEX_URL 只管 uv pip;uv run/lock 解析走这里,否则连 pypi.org 会很慢
