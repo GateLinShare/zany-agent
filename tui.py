@@ -6,7 +6,7 @@ Usage:
     uv run tui.py -p "问题"      # 无头单次提问, 打印回复退出
     ... | uv run tui.py -p       # prompt 从 stdin 读
 
-交互逻辑（MCP 热重载 / 每轮落盘 / cron 唤醒 / fork 恢复）都在 TUI 里,
+交互逻辑（MCP 热重载 / 每轮落盘 / cron 唤醒 / goal 续跑 / fork 恢复）都在 TUI 里,
 agent.invoke 放后台线程跑, UI 不卡; 同一轮没跑完先排队。
 """
 
@@ -40,6 +40,12 @@ from core.sessions import (
     save_session,
 )
 from cron_jobs import start_scheduler
+from core.goal import (
+    GOAL_MAX_TURNS,
+    attach_goal,
+    continuation_prompt,
+    detach_goal,
+)
 
 # ---- 渲染约定(参考 hermes cli.py 的盒子/折叠/token 三件套) ----
 # - thinking: dim 灰逐行流式(hermes _stream_reasoning_delta), 正文到达即折叠定稿
@@ -315,7 +321,8 @@ class ChatApp(App):
         super().__init__()
         self.workdir = os.getcwd()
         self.agent = build_agent(self.workdir, with_mcp=False)  # MCP 后台补, 界面秒起
-        self.state = {"messages": [], "marks": []}
+        self.state = {"messages": [], "marks": [], "goal": None}
+        self._turn_ok = False  # 本轮是否正常结束(打断/异常的轮不自动续 goal)
         self.mcp_stamp = config_stamp()
         self.sess_path = None
         self.resume_id = resume_id  # -r <id> / -r(最近一个) / None(新会话)
@@ -421,6 +428,9 @@ class ChatApp(App):
                 return
             self.new_chat()
             return
+        if text.lower().startswith("/goal"):
+            self.handle_goal(text[5:].strip())
+            return
         if self.busy:
             # hermes busy_input_mode="interrupt": 忙时输入=打断当前轮, 文本排下一轮
             if not self._interrupt_pending:
@@ -431,6 +441,47 @@ class ChatApp(App):
             return
         self.chat_line("user", text)
         self.run_turn(text)
+
+    def handle_goal(self, arg: str) -> None:
+        """goal 设置并立即开跑; /goal 查看; /goal resume 恢复; /goal off 清除。"""
+        g = self.state["goal"]
+        if not arg:
+            if g:
+                self.log_write(f"[cyan]🎯 goal[{g['status']}] 第 {g['turns_used']}/{g['max_turns']} 轮: {g['objective']}[/cyan]")
+            else:
+                self.log_write("[dim]用法: /goal <目标> · /goal resume · /goal off[/dim]")
+            return
+        if arg == "off":
+            if g:
+                detach_goal(self.agent)
+                self.state["goal"] = None
+                self.log_write("[dim]🎯 goal 已清除(状态史见会话)[/dim]")
+            else:
+                self.log_write("[dim]当前没有 goal[/dim]")
+            return
+        if arg == "resume":
+            if g and g["status"] in ("paused", "blocked"):
+                g["status"] = "active"
+                g["turns_used"] = 0  # 重新给满预算
+                self.log_write(f"[cyan]🎯 goal 已恢复, 预算重置为 {g['max_turns']} 轮: {g['objective']}[/cyan]")
+            else:
+                self.log_write("[dim]没有可恢复的 paused/blocked goal[/dim]")
+            return
+        if self.busy:
+            self.log_write("[dim]当前轮还在跑, 等它结束再设 goal[/dim]")
+            return
+        if g:
+            detach_goal(self.agent)  # 覆盖旧 goal
+        self.state["goal"] = {
+            "objective": arg,
+            "status": "active",
+            "turns_used": 1,
+            "max_turns": GOAL_MAX_TURNS,
+        }
+        attach_goal(self.agent, self.state["goal"])
+        self.log_write(f"[cyan]🎯 goal 已设定(预算 {GOAL_MAX_TURNS} 轮, /goal off 取消): {arg}[/cyan]")
+        self.chat_line("user", f"/goal {arg}")
+        self.run_turn(continuation_prompt(self.state["goal"]))
 
     def action_quit(self) -> None:
         """两段式退出(hermes): 运行中第一次 ctrl+c 打断, 第二次/空闲退出。"""
@@ -444,12 +495,15 @@ class ChatApp(App):
     @work(thread=True, exclusive=True)
     def run_turn(self, text: str) -> None:
         """一轮对话, 后台线程执行; UI 更新一律 call_from_thread。"""
+        self._turn_ok = False  # 打断/异常的轮不自动续 goal
         self.call_from_thread(self.set_busy, True)
         # mcp_servers.json 变了 → 重建 agent（与 chat.py 同款）
         if config_stamp() != self.mcp_stamp:
             self.mcp_stamp = config_stamp()
             try:
                 self.agent = build_agent(self.workdir)
+                if self.state["goal"]:
+                    attach_goal(self.agent, self.state["goal"])  # 重建丢了动态工具, 重挂
                 self.call_from_thread(
                     self.log_write, "[dim](检测到 mcp_servers.json 变更,已重载 MCP 工具)[/dim]"
                 )
@@ -509,6 +563,7 @@ class ChatApp(App):
                     )
                 elif kind == "interrupted":
                     self.call_from_thread(self.log_write, f"[yellow]⚡ 已打断: {ev[1]}[/yellow]")
+                    # _turn_ok 保持 False: 用户打断 = 要回控制权, 这轮之后不自动续 goal
                 elif kind == "compact_error":
                     self.call_from_thread(
                         self.log_write, f"[dim](自动压缩已停用: {ev[1]})[/dim]"
@@ -519,6 +574,7 @@ class ChatApp(App):
                     )
                 self.call_from_thread(self.live_update, think_buf, text_buf)
             self.state["messages"] = msgs
+            self._turn_ok = True
         except Exception as e:
             # 现场定稿(已到达的 thinking/正文不丢), 然后红字报错 —— 错误即文本
             self.call_from_thread(self.log_render, _turn_renderable(think_buf, text_buf, fold=True))
@@ -546,6 +602,7 @@ class ChatApp(App):
                 self.agent.usage,
                 self.state["marks"],
                 self.workdir,
+                goal=self.state["goal"],
             )
         except Exception as e:
             self.call_from_thread(self.log_write, f"[dim](会话保存失败: {e})[/dim]")
@@ -575,7 +632,7 @@ class ChatApp(App):
         状态提示 + ctx 占用; set_busy 也走这里, 提示随忙/闲切换。"""
         self._last_tin = tin
         state = ("[yellow]⏵ 运行中 · ctrl+c 打断[/yellow]" if self.busy
-                 else "[dim]⏵⏵ /new 新对话 · /resume 恢复 · exit 退出[/dim]")
+                 else "[dim]⏵⏵ /new 新对话 · /resume 恢复 · /goal 持续目标 · exit 退出[/dim]")
         self.query_one("#ctx", Static).update(f"{state} [dim]· {ctx_bar(tin)}[/dim]")
 
     # 贴图走文件路径: [图片: 路径] 占位符(core/messages.user_content 转成 image 块)。
@@ -601,7 +658,7 @@ class ChatApp(App):
         live.update("")
 
     def turn_finished(self) -> None:
-        """UI 线程收尾: 解锁输入; 忙时插进来的话(打断+steer)接着跑; 再跑 cron 唤醒。"""
+        """UI 线程收尾: 解锁输入; 忙时插进来的话(打断+steer)接着跑; 再跑 cron 唤醒; 最后 goal 续跑。"""
         self.set_busy(False)
         if self._queued_text:
             queued, self._queued_text = self._queued_text, None
@@ -612,6 +669,20 @@ class ChatApp(App):
             prompt = self.wakeup.get()
             self.log_write("[bold cyan]⏰ [定时任务触发][/bold cyan]")
             self.run_turn(prompt)
+            return
+        # goal 续跑(优先级最低: 排队用户文本 > cron > goal): 每轮末尾现场注入投影
+        g = self.state["goal"]
+        if g and g["status"] == "active" and self._turn_ok:
+            if g["turns_used"] >= g["max_turns"]:
+                g["status"] = "paused"
+                self.log_write(
+                    f"[yellow]🎯 goal 预算用完({g['max_turns']} 轮), 已暂停 — /goal resume 继续, /goal off 放弃[/yellow]"
+                )
+            else:
+                g["turns_used"] += 1
+                self.log_write(f"[bold cyan]🎯 [goal 续跑 {g['turns_used']}/{g['max_turns']}][/bold cyan]")
+                self.run_turn(continuation_prompt(g))
+        # goal 非 active(complete/blocked/paused): update_goal 工具行已展示过, 不再刷屏
 
     # ---- /new / /resume ----
 
@@ -621,6 +692,9 @@ class ChatApp(App):
         旧会话已每轮落盘, 这里只是 UI 和内存态归零 —— /resume 随时能找回。"""
         self.state["messages"] = []
         self.state["marks"] = []
+        if self.state["goal"]:
+            detach_goal(self.agent)
+        self.state["goal"] = None
         self.sess_path = None  # 解除续写目标, 下轮落盘时 new_session_file 另起新文件
         self.agent.usage = {"input": 0, "output": 0, "calls": 0}  # 账本清零(与 loop 初始同款)
         self.agent._last_prompt_tokens = None  # 压缩判定同步清零, 防旧 last_in 误触发新会话压缩
@@ -636,6 +710,13 @@ class ChatApp(App):
         data = load_session_data(path)
         self.state["messages"] = data["messages"]
         self.state["marks"] = data.get("marks", []) or []
+        g = data.get("goal")
+        self.state["goal"] = g
+        if g:
+            attach_goal(self.agent, g)  # update_goal 工具跟会话走
+            self.log_write(
+                f"[cyan]🎯 goal 恢复[{g['status']}] 第 {g['turns_used']}/{g['max_turns']} 轮: {g['objective']}[/cyan]"
+            )
         self.sess_path = path  # 原地续写原会话文件
         if data.get("usage"):
             self.agent.restore(data["usage"])

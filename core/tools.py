@@ -86,12 +86,14 @@ class _Ledger:
         self.__init__()  # 字段都是简单容器, 重新初始化即全清
 
 
-def _resolve(workdir: str, path: str) -> Path:
+def _resolve(workdir: str, path: str, create: bool = False) -> Path:
     """虚拟根路径解析: /agent.py -> workdir/agent.py; ../ 越界仍拒绝。
 
     逃生口: 显式绝对路径在虚拟根下不存在、但真实文件系统存在时, 按真实路径用 ——
     execute 本就是真实 shell, 这里让四件套也能碰到工作目录外的既有文件。
     ponytail: 逃生口只认已存在的路径, 工作目录外建新文件仍走 execute。
+    create=True(write 用): 虚拟根内的新文件放行新建; 但真实文件系统里父目录
+    已存在的(如 /tmp/foo/new.md)大概率指工作目录外, 仍报错维持约定。
     """
     root = Path(workdir).resolve()
     p = (root / str(path).lstrip("/")).resolve()
@@ -104,7 +106,9 @@ def _resolve(workdir: str, path: str) -> Path:
         real = Path(raw).resolve()
         if real.exists():
             return real
-    raise FileNotFoundError(f"不存在: {path} (虚拟根解析为 {p}; 工作目录外的既有文件用真实绝对路径, 新建文件用 execute)")
+        if not create or real.parent.exists():
+            raise FileNotFoundError(f"不存在: {path} (虚拟根解析为 {p}; 工作目录外的既有文件用真实绝对路径, 新建文件用 execute)")
+    return p
 
 
 def _truncate(text: str) -> str:
@@ -146,7 +150,7 @@ def _read(workdir, args, ledger) -> str:
 
 
 def _write(workdir, args, ledger) -> str:
-    f = _resolve(workdir, args["path"])
+    f = _resolve(workdir, args["path"], create=True)
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text(args["content"], encoding="utf-8")
     ledger.forget(str(f))  # 新内容落盘, 该文件的读去重/连败记录失效

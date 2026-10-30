@@ -35,6 +35,7 @@ def save_session(
     usage: dict | None = None,
     marks: list | None = None,
     workdir: str = "",
+    goal: dict | None = None,
 ) -> None:
     path.parent.mkdir(exist_ok=True)
     data = {
@@ -48,6 +49,8 @@ def save_session(
         # 回合侧账(Thought for Xs / ran N tool calls): at=回合结束时的消息条数,
         # 恢复回放拿它当对齐锚 —— compact 改写历史后锚失配的条目自动丢弃, 不误导
         data["marks"] = marks
+    if goal:
+        data["goal"] = goal  # goal 模式状态(objective/status/turns), /resume 捡回
     path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
