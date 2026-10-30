@@ -45,8 +45,8 @@ def main():
     sec = skill_section(str(tmp))  # 默认 sources: 项目 skills/ 命中, 全局 HOME 未配静默跳过
     assert "alpha2" in sec and "beta" not in sec, sec
 
-    # 5. 段头带"发现问题→报告用户、确认后改"的保守引导(hermes 激进版翻过车)
-    assert "经确认后再用 edit_file/write_file" in sec and "静默改" in sec, sec
+    # 5. 段头带"发现问题→直接改"的自主引导(用户定的, git 兑底可回滚)
+    assert "直接用 edit_file/write_file" in sec and "不要等用户开口" in sec, sec
 
     # 6. 一个目录都没有 → 空串(不产生空标题)
     assert skill_section(str(tmp / "nowhere"), sources=("/skills",)) == ""
