@@ -47,5 +47,5 @@ def skill_md_read(p: Path) -> str:
 
 
 def skill_md_path(src: str, p: Path) -> str:
-    """backend 视角的路径(虚拟根), 与 read_file 的约定一致。"""
+    """相对 workdir 的路径, 与 read_file 的约定一致。"""
     return f"{src}/{p.parent.name}/SKILL.md"

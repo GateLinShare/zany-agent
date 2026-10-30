@@ -2,7 +2,7 @@
 """Mini coding agent —— 无框架版, 核心组件都在 core/ 目录:
 
     core/model.py     模型薄封装(流式/非流式, anthropic 兼容端点)
-    core/tools.py     内置文件工具 + execute(虚拟根路径约定)
+    core/tools.py     内置文件工具 + execute(路径不做重写: 绝对直用/相对挂 workdir)
     core/loop.py      agent loop(流式聚合 → 工具派发 → 循环)
     core/subagent.py  task 子代理
     core/summarize.py 上下文压缩
@@ -48,7 +48,7 @@ SYSTEM_PROMPT = """你是一个编码助手, 在当前工作目录内完成用�
 项目约定/结构/规范写进 /AGENTS.md(不存在就创建, 随项目 git 提交);
 个人协作偏好、用户纠正过你的事写进真实路径 ~/.miniagent/USER.md
 (不存在就创建, 每条一行带日期, 不进任何项目仓库),
-它在虚拟根外, 用真实绝对路径 write_file/edit_file 写。
+用真实绝对路径 write_file/edit_file 写。
 task 工具派 general-purpose 子代理独立跑子任务(检索、批量评测等),
 适合量大或可并行的活, 主对话保留结论即可。"""
 

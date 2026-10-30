@@ -3,49 +3,29 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from core.tools import _resolve
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from core.tools import _Ledger, _resolve, _write  # noqa: E402
 
+with tempfile.TemporaryDirectory() as d:
+    wd = Path(d)
+    (wd / "a.py").write_text("x")
 
-def main():
-    wd = Path(tempfile.mkdtemp())
-    (wd / "agent.py").write_text("x")
+    # 1. 相对路径挂 workdir
+    assert _resolve(str(wd), "a.py") == (wd / "a.py").resolve()
+    assert _resolve(str(wd), "./a.py") == (wd / "a.py").resolve()
 
-    # 1. 虚拟根: /agent.py -> workdir/agent.py
-    assert _resolve(str(wd), "/agent.py") == (wd / "agent.py").resolve()
-
-    # 2. ../ 越界仍拒绝(即使目标真实存在)
-    try:
-        _resolve(str(wd), "../whatever")
-        raise AssertionError("../ 应被拒绝")
-    except ValueError:
-        pass
-
-    # 3. 逃生口: 工作目录外既有文件的绝对路径直读
-    outside = Path(tempfile.mkdtemp()) / "report.md"
-    outside.write_text("hi")
+    # 2. 绝对路径字面直用, 存在与不存在都按真实路径解析(pi/hermes: 无虚拟根)
+    assert _resolve(str(wd), str(wd / "a.py")) == (wd / "a.py").resolve()
+    outside = wd.parent / "no_such_missing.md"
     assert _resolve(str(wd), str(outside)) == outside.resolve()
 
-    # 4. 哪都不存在 -> 带指引的报错
-    try:
-        _resolve(str(wd), "/no/such/file.md")
-        raise AssertionError("不存在的路径应报 FileNotFoundError")
-    except FileNotFoundError as e:
-        assert "真实绝对路径" in str(e)
+    # 3. ~ 展开, 不落进 workdir
+    assert not str(_resolve(str(wd), "~")).startswith(str(wd))
 
-    # 5. write(create=True): 虚拟根内新文件放行新建(此前误报不存在)
-    assert _resolve(str(wd), "/core/new_file.py", create=True) == (wd / "core/new_file.py").resolve()
+    # 4. write_file 可用绝对路径在工作目录外新建文件(旧虚拟根禁止的场景)
+    new = wd.parent / "resolve_test_new.md"
+    _write(str(wd), {"path": str(new), "content": "hi"}, _Ledger())
+    assert new.read_text() == "hi"
+    new.unlink()
 
-    # 6. create=True 但真实文件系统父目录存在(外部新建) -> 仍报错, 走 execute 约定
-    outside_dir = Path(tempfile.mkdtemp())
-    try:
-        _resolve(str(wd), str(outside_dir / "new.md"), create=True)
-        raise AssertionError("外部新建应仍报错")
-    except FileNotFoundError:
-        pass
-
-    print("ok: 6 checks passed")
-
-
-if __name__ == "__main__":
-    main()
+print("ok")

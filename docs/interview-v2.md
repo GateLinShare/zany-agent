@@ -62,11 +62,10 @@ def build_agent(workdir):
 
 组装层就这四行 —— 因为没有框架要配,组装自然就薄。三个仍然值得讲的取舍:
 
-**① 路径虚拟根。** 文件工具以 workdir 为虚拟根(`/agent.py` = 真实的
-`workdir/agent.py`),`execute` 却是真实 shell。约定写进 SYSTEM_PROMPT,
-不在工具层做路径重写 —— 重写会掩盖两套路径的不一致,不如让规则显式;
-`_resolve()` 用 `Path.is_relative_to` 硬拒绝 `../` 越界,prompt 管习惯、
-代码管底线。
+**① 路径不做重写。** 文件工具与 execute 同一套文件系统视图(pi/hermes 同款):
+绝对路径字面直用,相对路径相对 workdir。曾有 workdir 虚拟根(`/agent.py` 映射到
+`workdir/agent.py`),但逃生口、create 特判、外部新建绕道 execute 这些特例都是它
+制造的,2026-10-31 移除 —— 两套路径语义的一致性靠"不做"保证,不靠约定补救。
 
 **② system prompt 不入历史。** AGENTS.md 每轮调模型前现读现拼,用完即弃。
 否则记忆每轮重复累加,上下文膨胀、缓存全失效。AGENTS.md 由模型自己用

@@ -29,7 +29,7 @@ core/
 |---|---|
 | **单协议** | Anthropic 原生消息格式是唯一协议:messages 是 `{"role", "content": str \| [blocks]}` 的 dict 列表,blocks 为 text / thinking / tool_use / tool_result。模型吃它、会话存它、回放原样带回,零转换层。旧方案(deepagents+langchain)光消息格式就要在 LangChain 对象 ↔ dict 之间转两次,这是砍掉框架的最大收益之一 |
 | **错误即文本** | 工具崩溃不抛异常,统一转 `"错误: ..."` 塞回 tool_result,让模型自己看到并修正重试(实测 GLM 发错 task 入参,第二轮自己纠正) |
-| **虚拟根** | 文件工具以 workdir 为虚拟根(`/agent.py` = `workdir/agent.py`),execute 是真实 shell;规则写进 SYSTEM_PROMPT 不做路径重写 —— 重写会掩盖两套路径的不一致,不如让规则显式。例外:虚拟根下不存在的显式绝对路径若真实存在则直读/直改(_resolve 逃生口),新建文件仍走 execute |
+| **路径不做重写** | 文件工具与 execute 同一套文件系统视图(pi/hermes 同款):绝对路径字面直用,相对路径相对 workdir;无虚拟根、无越界 jail,约定写进各文件工具 description(2026-10-31 移除虚拟根与 `_resolve` 逃生口) |
 | **账本当场接** | 真实 usage 只在流式聚合时能拿到(`message_start` / `message_delta`),聚合时顺手记账;est 粗估只做压缩触发兜底 |
 
 ## 2. agent 组装(agent.py)
@@ -156,9 +156,9 @@ class Tool:
 
 ### 4.3 四个防线
 
-1. **路径越界防线**:`_resolve()` 把 `/agent.py` 解析成 `workdir/agent.py`
-   (虚拟根),用 `Path.is_relative_to` 拒绝 `../` 越出工作目录;
-   虚拟根下不存在的显式绝对路径若真实存在则按真实路径放行(逃生口)。
+1. **路径不做重写**:`_resolve()` 绝对路径字面直用、相对路径相对 workdir
+   (pi/hermes 同款);无虚拟根无 jail —— execute 本就是真实 shell,
+   文件工具再圈地只会制造两套路径语义,赌模型给对路径、错时报错带锚点自纠。
 2. **输出截断防线**:单工具结果 `MAX_OUTPUT`(200000 字符)封顶;截断方向学
    hermes **保头 40% + 保尾 60%**(错误常在前头,最新输出在后头),execute 超长
    时全量落盘 `/tmp/agent-exec-*.log` 并把路径告诉模型,想看全文可再读。
