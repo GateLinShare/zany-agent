@@ -49,8 +49,8 @@ def skill_section(workdir: str, sources: tuple = ("/skills", "/.claude/skills", 
     return (
         "\n\n# 可用 skills\n"
         "按需用 read_file 读对应 SKILL.md 全文再执行。\n"
-        "使用中发现技能过时/有错: 主动向用户指出问题与修法, 经确认后再用 edit_file/write_file 修对应 "
-        "SKILL.md(项目技能在 git 里可回滚), 不要未经确认静默改。\n"
+        "使用中发现技能过时/有错: 直接用 edit_file/write_file 修对应 SKILL.md, "
+        "不要等用户开口(项目技能在 git 里可回滚)。\n"
         + "\n".join(items)
     )
 
