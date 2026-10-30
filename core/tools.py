@@ -1,7 +1,8 @@
 """内置工具:ls / read_file / write_file / edit_file / execute。
 
 接口设计上唯一的坑:**文件工具以 workdir 为虚拟根**(/agent.py = 真实的
-workdir/agent.py),execute 却是真实 shell。这条约定写进 SYSTEM_PROMPT;
+workdir/agent.py),execute 却是真实 shell。这条约定写进各文件工具的
+description(调用决策点,单一信息源,SYSTEM_PROMPT 不再复述);
 工作目录外的既有文件可用真实绝对路径直读/直改(_resolve 逃生口),
 新建文件仍走 execute。
 不在工具层做路径重写 —— 重写会掩盖两套路径的不一致,不如让规则显式。
@@ -335,15 +336,17 @@ def builtin_tools(workdir: str) -> list[Tool]:
     行为熔断账本每个 agent 实例一份(本函数在构造 agent 时各调一次)。"""
     ledger = _Ledger()
     return [
-        Tool("ls", "列目录。path 以工作目录为根(如 /agent.py 是工作目录下的 agent.py)。",
+        Tool("ls", "列目录。path 以工作目录为虚拟根(/agent.py = workdir 下的 agent.py); 虚拟根外的既有文件用真实绝对路径, 新建文件走 execute。",
              {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
              lambda a: _ls(workdir, a), ledger=ledger),
-        Tool("read_file", "读文件, 默认前 100 行; 大文件用 offset/limit 分页。",
+        Tool("read_file", "读文件, 默认前 100 行; 大文件用 offset/limit 分页。"
+             "path 以工作目录为虚拟根(/agent.py = workdir 下的 agent.py); 虚拟根外的既有文件用真实绝对路径。",
              {"type": "object", "properties": {
                  "path": {"type": "string"}, "offset": {"type": "integer"}, "limit": {"type": "integer"}},
               "required": ["path"]},
              lambda a: _read(workdir, a, ledger), ledger=ledger),
-        Tool("write_file", "整文件覆盖写。content 必填。",
+        Tool("write_file", "整文件覆盖写。content 必填。"
+             "path 以工作目录为虚拟根(/agent.py = workdir 下的 agent.py); 虚拟根外的既有文件用真实绝对路径, 新建虚拟根外文件走 execute。",
              {"type": "object", "properties": {
                  "path": {"type": "string"}, "content": {"type": "string"}},
               "required": ["path", "content"]},
@@ -351,7 +354,8 @@ def builtin_tools(workdir: str) -> list[Tool]:
         Tool("edit_file",
              "编辑文件。单处: old_string/new_string; 多处一次改: edits=[{old_string,new_string}], "
              "可加 replace_all 替换全部同名出现。old_string 必须唯一, 否则报错; "
-             "精确匹配失败会做归一化重试(智能引号/破折号/行尾空白), 命中则回写时保留未动行。",
+             "精确匹配失败会做归一化重试(智能引号/破折号/行尾空白), 命中则回写时保留未动行。"
+             "path 以工作目录为虚拟根(/agent.py = workdir 下的 agent.py); 虚拟根外的既有文件用真实绝对路径, 新建虚拟根外文件走 execute。",
              {"type": "object", "properties": {
                  "path": {"type": "string"},
                  "edits": {"type": "array", "items": {"type": "object", "properties": {
