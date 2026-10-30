@@ -1,11 +1,9 @@
 """内置工具:ls / read_file / write_file / edit_file / execute。
 
-接口设计上唯一的坑:**文件工具以 workdir 为虚拟根**(/agent.py = 真实的
-workdir/agent.py),execute 却是真实 shell。这条约定写进各文件工具的
-description(调用决策点,单一信息源,SYSTEM_PROMPT 不再复述);
-工作目录外的既有文件可用真实绝对路径直读/直改(_resolve 逃生口),
-新建文件仍走 execute。
-不在工具层做路径重写 —— 重写会掩盖两套路径的不一致,不如让规则显式。
+路径约定(pi/hermes 同款):**不做任何路径重写** —— 绝对路径字面直用,
+相对路径相对 workdir 解析; execute 本就是真实 shell, 四件套与它同一套
+文件系统视图。不做虚拟根/越界 jail(execute 能干任何事, 工具层圈地无意义),
+约定写进各文件工具 description(调用决策点, 单一信息源)。
 
 防爆层(学 pi/hermes, 逐项见 docs/tools-comparison.md 优化清单):
 - execute 输出保头 40% + 保尾 60%(错误常在前头, 最新输出在后头), 全量落盘给路径
@@ -87,29 +85,14 @@ class _Ledger:
         self.__init__()  # 字段都是简单容器, 重新初始化即全清
 
 
-def _resolve(workdir: str, path: str, create: bool = False) -> Path:
-    """虚拟根路径解析: /agent.py -> workdir/agent.py; ../ 越界仍拒绝。
+def _resolve(workdir: str, path: str) -> Path:
+    """pi/hermes 同款语义: 绝对路径字面直用, 相对路径相对 workdir。
 
-    逃生口: 显式绝对路径在虚拟根下不存在、但真实文件系统存在时, 按真实路径用 ——
-    execute 本就是真实 shell, 这里让四件套也能碰到工作目录外的既有文件。
-    ponytail: 逃生口只认已存在的路径, 工作目录外建新文件仍走 execute。
-    create=True(write 用): 虚拟根内的新文件放行新建; 但真实文件系统里父目录
-    已存在的(如 /tmp/foo/new.md)大概率指工作目录外, 仍报错维持约定。
+    不存在时抛 FileNotFoundError, 报错带 workdir 锚点让模型自纠
+    (异常由 loop 的错误即文本兜底转回 tool_result)。
     """
-    root = Path(workdir).resolve()
-    p = (root / str(path).lstrip("/")).resolve()
-    if not p.is_relative_to(root):
-        raise ValueError(f"路径越界: {path} (文件工具以工作目录为根; 工作目录外用真实绝对路径)")
-    if p.exists():
-        return p
-    raw = str(path)
-    if raw.startswith("/"):
-        real = Path(raw).resolve()
-        if real.exists():
-            return real
-        if not create or real.parent.exists():
-            raise FileNotFoundError(f"不存在: {path} (虚拟根解析为 {p}; 工作目录外的既有文件用真实绝对路径, 新建文件用 execute)")
-    return p
+    p = Path(str(path)).expanduser()
+    return p.resolve() if p.is_absolute() else (Path(workdir) / p).resolve()
 
 
 def _truncate(text: str) -> str:
@@ -121,7 +104,7 @@ def _truncate(text: str) -> str:
 
 
 def _ls(workdir, args) -> str:
-    d = _resolve(workdir, args.get("path", "/"))
+    d = _resolve(workdir, args.get("path", "."))
     if not d.is_dir():
         return f"不是目录: {args.get('path', '/')}"
     entries = sorted(d.iterdir())
@@ -151,7 +134,7 @@ def _read(workdir, args, ledger) -> str:
 
 
 def _write(workdir, args, ledger) -> str:
-    f = _resolve(workdir, args["path"], create=True)
+    f = _resolve(workdir, args["path"])
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text(args["content"], encoding="utf-8")
     ledger.forget(str(f))  # 新内容落盘, 该文件的读去重/连败记录失效
@@ -224,7 +207,7 @@ def _edit(workdir, args, ledger) -> str:
 
     if not f.is_file():
         # 不走异常: "对不存在的文件反复 edit"是最典型的打转场景, 必须计连败
-        return fail(f"文件不存在: {args['path']} (先 ls 确认路径; 文件工具以工作目录为根)")
+        return fail(f"文件不存在: {args['path']} (先 ls 确认路径; 工作目录 {workdir})")
     # BOM/CRLF 透明处理(pi edit-diff): 模型的 old_string 不会带 BOM,
     # CRLF 文件在 LF 空间匹配, 回写时还原原行尾 —— 防止"edit 成功但全文行尾被改"。
     raw = f.read_bytes()
@@ -336,17 +319,17 @@ def builtin_tools(workdir: str) -> list[Tool]:
     行为熔断账本每个 agent 实例一份(本函数在构造 agent 时各调一次)。"""
     ledger = _Ledger()
     return [
-        Tool("ls", "列目录。path 以工作目录为虚拟根(/agent.py = workdir 下的 agent.py); 虚拟根外的既有文件用真实绝对路径, 新建文件走 execute。",
+        Tool("ls", "列目录。path 相对工作目录解析, 绝对路径按真实文件系统。",
              {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
              lambda a: _ls(workdir, a), ledger=ledger),
         Tool("read_file", "读文件, 默认前 100 行; 大文件用 offset/limit 分页。"
-             "path 以工作目录为虚拟根(/agent.py = workdir 下的 agent.py); 虚拟根外的既有文件用真实绝对路径。",
+             "path 相对工作目录解析, 绝对路径按真实文件系统。",
              {"type": "object", "properties": {
                  "path": {"type": "string"}, "offset": {"type": "integer"}, "limit": {"type": "integer"}},
               "required": ["path"]},
              lambda a: _read(workdir, a, ledger), ledger=ledger),
-        Tool("write_file", "整文件覆盖写。content 必填。"
-             "path 以工作目录为虚拟根(/agent.py = workdir 下的 agent.py); 虚拟根外的既有文件用真实绝对路径, 新建虚拟根外文件走 execute。",
+        Tool("write_file", "整文件覆盖写, 可新建文件(自动建父目录)。content 必填。"
+             "path 相对工作目录解析, 绝对路径按真实文件系统。",
              {"type": "object", "properties": {
                  "path": {"type": "string"}, "content": {"type": "string"}},
               "required": ["path", "content"]},
@@ -355,7 +338,7 @@ def builtin_tools(workdir: str) -> list[Tool]:
              "编辑文件。单处: old_string/new_string; 多处一次改: edits=[{old_string,new_string}], "
              "可加 replace_all 替换全部同名出现。old_string 必须唯一, 否则报错; "
              "精确匹配失败会做归一化重试(智能引号/破折号/行尾空白), 命中则回写时保留未动行。"
-             "path 以工作目录为虚拟根(/agent.py = workdir 下的 agent.py); 虚拟根外的既有文件用真实绝对路径, 新建虚拟根外文件走 execute。",
+             "path 相对工作目录解析, 绝对路径按真实文件系统。",
              {"type": "object", "properties": {
                  "path": {"type": "string"},
                  "edits": {"type": "array", "items": {"type": "object", "properties": {

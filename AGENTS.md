@@ -30,12 +30,12 @@ core/
 |---|---|
 | **单协议** | Anthropic 原生消息格式是唯一协议：模型吃它、会话存它、回放原样带回，零转换层 |
 | **错误即文本** | 工具崩溃不抛异常，统一转 `"错误: ..."` 塞回 tool_result，让模型自愈 |
-| **虚拟根** | 文件工具以 workdir 为虚拟根（`/agent.py` = `workdir/agent.py`），execute 是真实 shell；规则写进各文件工具 description 不做路径重写。例外：虚拟根下不存在的显式绝对路径若真实存在则直读/直改（`_resolve` 逃生口，2026-10-29 加），工作目录外新建文件仍走 execute |
+| **路径不做重写** | 文件工具与 execute 同一套文件系统视图（pi/hermes 同款）：绝对路径字面直用，相对路径相对 workdir；无虚拟根、无越界 jail，约定写进各文件工具 description（2026-10-31 移除虚拟根） |
 | **账本当场接** | 真实 usage 只在流式聚合时能拿到（message_start/message_delta），聚合时顺手记账；展示用真实值，est 粗估只做压缩触发兜底 |
 | **压缩是 postflight** | 对话完（每轮响应后）用真实 prompt_tokens 判定触发（hermes 语义）；防抖（降幅<10%连续两次停）和熔断（摘要失败即停）不可拆，防抖必须同口径 est vs est |
 | **MCP 快速认输** | pypi 不通的环境里 uvx 会卡几分钟:probe 整体 wait_for 15s、工具调用 60s,超时跳过;stdio 子进程 stderr 收 devnull(MCP_STDERR=1 透传);TUI 界面先起、MCP 后台补(build_agent(with_mcp=False) + add_tools),except 不写 BaseException 防 Ctrl-C 被吞 |
 | **工具防爆层** | 截断保头 40%+尾 60%(错误在头、新输出在尾)、execute 超长全量落盘给路径、ls/read 上限提示带精确值、edit BOM/CRLF 透明;行为熔断账本 `_Ledger`(重复读去重/edit 连败升级/同命令警告)挂在 Tool.ledger,压缩后由 `loop.reset_tool_ledger()` 清空 -- 都是提示不是阻断,把"你在循环里"喟给模型 |
-| **goal 模式** | `/goal <目标>` 设目标后宿主自动续跑(codex ext/goal 语义, 不要 judge)。状态真身是 tui 侧 dict(工具闭包共享), 每轮末尾 turn_finished 现场注入投影 user 消息(压缩免疫); update_goal(complete/blocked/paused) 申报状态; 预算 GOAL_MAX_TURNS(.env 可配, 默认 500) 耗尽转 paused, 打断/异常轮不续。落盘走会话 JSON 顶层 `goal` 键, /resume 捡回; 优先级: 排队用户文本 > cron > goal。另: _resolve 补 create 参数, 修复"虚拟根内绝对路径新建文件误报不存在"(外部新建仍走 execute)。测试 tests/test_goal.py |
+| **goal 模式** | `/goal <目标>` 设目标后宿主自动续跑(codex ext/goal 语义, 不要 judge)。状态真身是 tui 侧 dict(工具闭包共享), 每轮末尾 turn_finished 现场注入投影 user 消息(压缩免疫); update_goal(complete/blocked/paused) 申报状态; 预算 GOAL_MAX_TURNS(.env 可配, 默认 500) 耗尽转 paused, 打断/异常轮不续。落盘走会话 JSON 顶层 `goal` 键, /resume 捡回; 优先级: 排队用户文本 > cron > goal。测试 tests/test_goal.py |
 | **.env 随仓库走** | 用户明确要求：内网私有仓库，.env(含密钥)直接提交，方便多机部署；不要往 .gitignore 加 .env、不要 git rm --cached .env（曾自作主张被纠正） |
 | **TUI 对齐 Claude Code 观感** | 正文/标题 #d4d4d4, markdown 标题白粗体(覆盖点: `rich.themes.DEFAULT.styles` 单例 + `Style.parse()`, 改 DEFAULT_STYLES 字典无效——DEFAULT import 时已 copy；塞 str 会在 get_style 崩)；thinking 折叠 3 行(SHOW_THINKING 开全量)；轮末摘要行 `Thought for Xs, ran N tool calls`(dim, 前置空行) |
 | **回合侧账 marks** | Thought/tool 计数是运行时局部变量, Anthropic 消息里没有 → 会话文件顶层 `marks=[{at, thought, tools}]`, at=回合结束时的消息条数做对齐锚；恢复回放按回合分组(真用户消息开组, tool_result 排除), 锚失配(压缩改写后)静默跳过不误导；老会话文件无 marks, 只有新回合才有 |
