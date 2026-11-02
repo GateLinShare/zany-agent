@@ -39,13 +39,13 @@ core/
 | **.env 随仓库走** | 用户明确要求：内网私有仓库，.env(含密钥)直接提交，方便多机部署；不要往 .gitignore 加 .env、不要 git rm --cached .env（曾自作主张被纠正） |
 | **TUI 对齐 Claude Code 观感** | 正文/标题 #d4d4d4, markdown 标题白粗体(覆盖点: `rich.themes.DEFAULT.styles` 单例 + `Style.parse()`, 改 DEFAULT_STYLES 字典无效——DEFAULT import 时已 copy；塞 str 会在 get_style 崩)；thinking 折叠 3 行(SHOW_THINKING 开全量)；轮末摘要行 `Thought for Xs, ran N tool calls`(dim, 前置空行) |
 | **回合侧账 marks** | Thought/tool 计数是运行时局部变量, Anthropic 消息里没有 → 会话文件顶层 `marks=[{at, thought, tools}]`, at=回合结束时的消息条数做对齐锚；恢复回放按回合分组(真用户消息开组, tool_result 排除), 锚失配(压缩改写后)静默跳过不误导；老会话文件无 marks, 只有新回合才有 |
-| **品牌更名 2026-11-02** | miniagent → **zany-agent**（裸仓库 `/data01/tsn/repos/zany-agent.git`），CLI/品牌 = **zany**；运行时数据根 `~/.zany`（sessions/USER.md/skills，已从 ~/.miniagent 全量迁入，旧路径 `/config/.miniagent` 留软链过渡，待旧实例退出后删）；环境变量前缀 `ZANY_*`（如 ZANY_USER_MEMORY）；容器链路同步更名：容器 `tsn-zany-gateway`、镜像 `zany-gateway`/`zany-base`、宿主数据 `/data01/tsn/tsn-zany-gateway`、compose 变量 `ZANY_HOME`、镜像内用户 `user_zany` |
+| **品牌更名 2026-11-02** | miniagent → **zany-agent**（裸仓库 `/data01/tsn/repos/zany-agent.git`），CLI/品牌 = **zany**；运行时数据根 `~/.zany`（sessions/USER.md/skills，已从 ~/.miniagent 全量迁入，旧路径 `/config/.miniagent` 留软链过渡，待旧实例退出后删）；环境变量前缀 `ZANY_*`（如 ZANY_USER_MEMORY）；容器链路同步更名：容器 `tsn-zany-gateway`、镜像 `zany-gateway`/`zany-base`、宿主数据 `/data01/tsn/tsn-zany-gateway`、compose 变量 `ZANY_HOME`、镜像内用户 `user_zany`；工作目录同步更名：`miniagent-develop`→`zany-agent-develop`、`-bak`→`zany-agent-develop-bak`、`miniagent`→`zany-agent-old`（旧名均留软链过渡，待旧 TUI 进程退出后删） |
 | **风格包插插拔** | 常驻行为(人格/规则)走 `styles/<name>.md` + `.env` 的 `PROMPT_PACKS`(逗号分隔), `agent.prompt_packs()` 全文拼进 SYSTEM_PROMPT(含 task 子代理)——常驻文本不能走 skills 的渐进披露(模型不会每轮自觉读全文)；按需技能仍走 `skills/` 渐进披露, 两条通道别混。不做通用 hook 系统, 等真实需求(skills/MCP 表达不了、loop.py 出现第 2 个特判)再抽 |
 
 git 分支约定（用户定的）：master 的提交要同步到 develop —— master 上提交后，
 merge master 进 develop 再 push 两个分支；develop 上自己的提交不反向进 master。
 AGENTS.md 同样参与同步，两分支保持一致。
-develop 分支的独立工作目录在 `/data01/tsn/code/tsn_files/miniagent-develop`（master 在
+develop 分支的独立工作目录在 `/data01/tsn/code/tsn_files/zany-agent-develop`（master 在
 `tsn_files/zany-agent`）：push 完要去那边 `git pull --ff-only` 同步到最新。
 **feishu gateway（gateway/ 目录 + docs/feishu-integration.md）只在 develop 实现，master 不加这些功能**（用户 2026-10-31 定）。
 
