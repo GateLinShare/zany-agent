@@ -136,6 +136,7 @@ bash deploy.sh             # 一键部署(fresh clone → uv/依赖/浏览器内
 - 想看 edit 模糊匹配的完整原版 → `/data01/tsn/code/pi/packages/coding-agent/src/core/tools/edit-diff.ts`
 - 想对比"带框架的同一套能力" → `/data01/tsn/code/deepagents/libs/deepagents/deepagents/`
 - 架构问答口径（面试/评审）→ `docs/interview-v2.md`
+- 插件化调研（master 基座 / develop 增量插件化，未实现）→ `docs/plugin-research.md`
 - 故障修复经验只记 `docs/troubleshooting.md`，不进本文件（本文件只放当前行为约定，用户定的）
 
 ## 回复风格
