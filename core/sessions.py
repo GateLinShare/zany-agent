@@ -1,4 +1,4 @@
-"""会话记录与恢复: 每个 session 一个 JSON 文件, 存在 ~/.miniagent/sessions/<项目名>-<hash8>/ 下(按工作目录分桶)。
+"""会话记录与恢复: 每个 session 一个 JSON 文件, 存在 ~/.zany/sessions/<项目名>-<hash8>/ 下(按工作目录分桶)。
 
 消息就是 Anthropic 原生 dict, 直接 JSON 序列化 —— 不自造格式, 不需要转换层。
 注意: 与旧 deepagents/langchain 格式的 session 文件不兼容(那批文件留着不读)。
@@ -10,11 +10,11 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-SESSIONS_DIR = Path.home() / ".miniagent" / "sessions"  # 个人数据跟 ~/.miniagent/ 走, 不进项目仓库
+SESSIONS_DIR = Path.home() / ".zany" / "sessions"  # 个人数据跟 ~/.zany/ 走, 不进项目仓库
 
 
 def project_dir(workdir: str) -> Path:
-    """工作目录对应的会话桶: ~/.miniagent/sessions/<basename>-<path hash 前 8 位>/。
+    """工作目录对应的会话桶: ~/.zany/sessions/<basename>-<path hash 前 8 位>/。
 
     basename 保证可读, hash 保证不同路径同名目录不撞; 恢复只认本桶(会话不跨项目)。
     """

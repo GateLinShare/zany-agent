@@ -5,8 +5,8 @@
 
 ```bash
 #!/usr/bin/env bash
-exec uv run --project /data01/tsn/code/tsn_files/deepagents-mini-agent \
-     python /data01/tsn/code/tsn_files/deepagents-mini-agent/tui.py "$@"
+exec uv run --project /data01/tsn/code/tsn_files/zany-agent \
+     python /data01/tsn/code/tsn_files/zany-agent/tui.py "$@"
 ```
 
 三个要点：
