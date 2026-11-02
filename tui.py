@@ -896,7 +896,7 @@ def main() -> None:
         pass
     # 退出后提示续聊命令(有对话内容才提示); ctrl+c 打断轮也已落盘
     if app.state["messages"] and app.sess_path is not None:
-        print(f"(继续对话: miniagent -r {app.sess_path.stem})", file=sys.stderr)
+        print(f"(继续对话: zany -r {app.sess_path.stem})", file=sys.stderr)
     # 后台线程(@work 的 agent.invoke / MCP probe)可能还挂着, sys.exit 会死等
     # 它们 —— 会话每轮都已落盘, 直接硬退
     os._exit(0)

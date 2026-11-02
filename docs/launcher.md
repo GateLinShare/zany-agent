@@ -1,7 +1,7 @@
-# miniagent 启动器
+# zany 启动器
 
-`/usr/local/bin/miniagent` 是一个 bash wrapper（非软链接），装好后任意目录敲
-`miniagent` 即以当前目录为 workdir 启动本项目：
+`/usr/local/bin/zany` 是一个 bash wrapper（非软链接），装好后任意目录敲
+`zany` 即以当前目录为 workdir 启动本项目：
 
 ```bash
 #!/usr/bin/env bash

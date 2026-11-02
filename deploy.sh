@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# miniagent 一键部署(非 docker): uv(缺则装) + uv sync + 浏览器内核 + 全局命令 miniagent
+# zany 一键部署(非 docker): uv(缺则装) + uv sync + 浏览器内核 + 全局命令 zany
 # 用法: bash deploy.sh   (在 fresh clone 上即可跑, python/依赖均由 uv 管理)
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -26,11 +26,11 @@ else
   bash install_browser.sh
 fi
 
-# 4/4 全局命令 miniagent: 代码路径固定到本 checkout, 调用时的 cwd 即 agent 工作目录
+# 4/4 全局命令 zany: 代码路径固定到本 checkout, 调用时的 cwd 即 agent 工作目录
 if [ -w /usr/local/bin ] || [ "$(id -u)" = 0 ]; then
-  BIN=/usr/local/bin/miniagent
+  BIN=/usr/local/bin/zany
 else
-  BIN="$HOME/.local/bin/miniagent"
+  BIN="$HOME/.local/bin/zany"
   mkdir -p "$HOME/.local/bin"
 fi
 cat > "$BIN" <<EOF
@@ -41,11 +41,11 @@ exec uv run --project $REPO python $REPO/tui.py "\$@"
 EOF
 chmod +x "$BIN"
 echo "[4/4] 全局命令: $BIN"
-[ "$BIN" = "$HOME/.local/bin/miniagent" ] && echo "  (确保 $HOME/.local/bin 在 PATH 里)"
+[ "$BIN" = "$HOME/.local/bin/zany" ] && echo "  (确保 $HOME/.local/bin 在 PATH 里)"
 
 echo
 echo "部署完成。用法(任意目录):"
-echo "  miniagent                   # TUI"
-echo "  miniagent -p \"...\"          # 无头单次"
+echo "  zany                   # TUI"
+echo "  zany -p \"...\"          # 无头单次"
 echo "  <仓库>/gateway/run.sh start # 飞书网关(需 .env 配 FEISHU_*)"
 echo "  uv run eval/main.py [name]  # 评测"
