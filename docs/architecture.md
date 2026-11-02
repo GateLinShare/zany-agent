@@ -1,4 +1,4 @@
-# deepagents-mini-agent 架构与核心组件
+# zany-agent 架构与核心组件
 
 无框架手写的 mini coding agent(GLM,走 anthropic 兼容代理,`Authorization: Bearer`)。
 从 deepagents + langchain 迁移而来(commit `455d92b`),协议只有一套、循环只有一个、
