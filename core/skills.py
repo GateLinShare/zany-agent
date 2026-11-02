@@ -3,7 +3,7 @@
 SKILL.md 正文不进上下文 —— 模型按需用 read_file 读,这是渐进披露:
 清单常驻(每条几十 token),全文只有真用到才占窗口。
 frontmatter 用行解析,不引 yaml 依赖(只认 name/description 两个键,够用)。
-默认扫项目 skills/、.claude/skills 和全局 ~/.miniagent/skills(跨项目共用);
+默认扫项目 skills/、.claude/skills 和全局 ~/.zany/skills(跨项目共用);
 ~ 开头的 source 按真实路径展开,清单里也列绝对路径(read_file 字面直用),
 其余 source 沿旧约定挂 workdir。
 """
@@ -33,7 +33,7 @@ def _root(src: str, workdir: str) -> Path:
     return Path(workdir) / src.lstrip("/")
 
 
-def skill_section(workdir: str, sources: tuple = ("/skills", "/.claude/skills", "~/.miniagent/skills")) -> str:
+def skill_section(workdir: str, sources: tuple = ("/skills", "/.claude/skills", "~/.zany/skills")) -> str:
     """返回 system prompt 的 skills 段;没有 skill 目录就返回空串。"""
     items = []
     for src in sources:

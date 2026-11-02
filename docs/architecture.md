@@ -197,7 +197,7 @@ class Tool:
   依赖 checkpointer 才能恢复完整现场。
 - **改写式**(本方案):超阈值直接把较早历史替换成一条摘要消息。
 
-选改写式的根本原因是持久化模型:本项目 ~/.miniagent/sessions/*.json 直接覆盖写,没有
+选改写式的根本原因是持久化模型:本项目 ~/.zany/sessions/*.json 直接覆盖写,没有
 checkpointer。改写式的结果天然就在 messages 里,落盘/恢复零额外依赖;全量原文
 仍留在历史 session 文件里(每轮都存过盘),想翻旧账去文件里找。
 
@@ -261,7 +261,7 @@ probe 完成后 `agent.add_tools()` 补入。
 
 ## 8. 持久化与恢复(core/sessions.py)
 
-- 每轮 invoke 后覆盖写 `~/.miniagent/sessions/<时间戳>.json`(首轮创建),Anthropic 原生 dict
+- 每轮 invoke 后覆盖写 `~/.zany/sessions/<时间戳>.json`(首轮创建),Anthropic 原生 dict
   直接 JSON 落盘(含 usage);崩溃最多丢当轮。
 - `/resume`(TUI ResumeScreen)/ `tui.py -r [id]` 列出最近 10 个会话(按 mtime
   排序),恢复后**原地续写原文件**;`-r` 不带 id = 最近活跃会话。

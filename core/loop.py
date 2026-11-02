@@ -17,8 +17,8 @@ MAX_TURNS = 40  # 单次 run 的工具轮数上限, 防模型打转烧钱
 
 
 def user_memory_path() -> Path:
-    """个人记忆文件: ZANY_USER_MEMORY 优先(服务器多人共用时各自 export 指向自己的), 默认 ~/.miniagent/USER.md。"""
-    return Path(os.environ.get("ZANY_USER_MEMORY") or Path.home() / ".miniagent" / "USER.md")
+    """个人记忆文件: ZANY_USER_MEMORY 优先(服务器多人共用时各自 export 指向自己的), 默认 ~/.zany/USER.md。"""
+    return Path(os.environ.get("ZANY_USER_MEMORY") or Path.home() / ".zany" / "USER.md")
 
 
 class Agent:

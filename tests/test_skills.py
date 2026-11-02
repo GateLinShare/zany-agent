@@ -30,17 +30,17 @@ def main():
 
     # 3. 全局目录(~ 展开): HOME 指到沙箱, 清单列真实绝对路径
     home = tmp / "home"
-    mk_skill(home / ".miniagent" / "skills", "beta", "全局技能")
+    mk_skill(home / ".zany" / "skills", "beta", "全局技能")
     old = os.environ["HOME"]
     os.environ["HOME"] = str(home)
     try:
-        sec = skill_section(str(tmp), sources=("~/.miniagent/skills",))
+        sec = skill_section(str(tmp), sources=("~/.zany/skills",))
     finally:
         os.environ["HOME"] = old
-    assert f"- beta: 全局技能(全文: {home}/.miniagent/skills/beta/SKILL.md)" in sec, sec
+    assert f"- beta: 全局技能(全文: {home}/.zany/skills/beta/SKILL.md)" in sec, sec
 
     # 4. 默认 sources 含全局目录; 两处同扫不串位
-    assert skill_section.__defaults__[0][-1] == "~/.miniagent/skills"
+    assert skill_section.__defaults__[0][-1] == "~/.zany/skills"
     md.write_text("---\nname: alpha2\ndescription: x\n---\n", encoding="utf-8")
     sec = skill_section(str(tmp))  # 默认 sources: 项目 skills/ 命中, 全局 HOME 未配静默跳过
     assert "alpha2" in sec and "beta" not in sec, sec

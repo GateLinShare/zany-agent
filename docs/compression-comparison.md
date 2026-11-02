@@ -26,7 +26,7 @@
 | **大工具结果** | `_flat` 一维化时截前 500 字（仅摘要输入瘦身），无独立 offload | 压缩窗口外旧 tool_result 换信息性单行摘要（无 LLM）；图片：最新含图消息之前的图全换占位符 | **三级**：老消息 args>2000 字符截断 → 结果>20k token offload 换 stub → overflow 尾部 clip；图片 data-URL 上传换引用 | 摘要输入内截 2000 字符；超长由 read 工具自身截断负责；不做落盘 offload |
 | **thinking 块** | `_flat` 直接丢弃 | 计入尾部预算但**从不修改**、不进摘要输入（加密 reasoning 块） | 未确认特殊处理 | 显式剔除，注释写明理由：回放 thinking 常不在实时上下文，会撑爆摘要请求 |
 | **失败处理** | 熔断：摘要失败 1 次 → `_compact_dead` 停（`loop.py:263`），错误转 `compact_error` 事件，不炸轮次 | **失败分类学**：auth/网络错→无条件中止保原样；瞬时错→回退主模型重试；无 provider→600s 冷却（持久化到 state.db）；其余→本地静态兜底摘要 | offload 失败降级继续；摘要重试耗尽上抛；overflow 两次仍超→终止；`_check_reduction` 保证重试严格变小否则熔断 | 截断的摘要（length-stop）不许当 checkpoint；失败发事件后停止，无无限重试；overflow 只 compact-and-retry 一次 |
-| **持久化/恢复** | 压缩结果天然落在 messages → `~/.miniagent/sessions/*.json` 覆盖写；账本 `last_in` 随存随恢复 | 原文留父 session（轮转）或同 id 重写；失败冷却按 session 持久化；resume 靠消息里的旧摘要走迭代更新 | 事件随 checkpointer 存 + offload 落 backend 大文件；resume 后用 raw+event 重建视图 | JSONL append 一条 entry，原文不删；resume 即重算投影；防旧 usage 重触发 |
+| **持久化/恢复** | 压缩结果天然落在 messages → `~/.zany/sessions/*.json` 覆盖写；账本 `last_in` 随存随恢复 | 原文留父 session（轮转）或同 id 重写；失败冷却按 session 持久化；resume 靠消息里的旧摘要走迭代更新 | 事件随 checkpointer 存 + offload 落 backend 大文件；resume 后用 raw+event 重建视图 | JSONL append 一条 entry，原文不删；resume 即重算投影；防旧 usage 重触发 |
 | **手动命令** | 无 | `/compress [focus]`、`/compress here [N]`、`--preview`，可清冷却强制 | dcode：`/offload`（强压绕资格门）+ `/summarization-model` 换摘要模型 + `/context-doctor` | `/compact [自定义指令]`，focus 拼进摘要 prompt，支持扩展钩子取消/接管 |
 | **特色亮点** | 全场最小实现；防抖口径纪律（est-vs-est 不混比）；错误即文本不炸轮次 | ① 失败分类学（数据安全优先）② 并发原子锁+TTL 租约 ③ 每个边角机制对应真实 issue 号 | ① 事件视图保 replay/eval ② PreCompact hook + 专用摘要模型降级链 ③ `_check_reduction` 熔断 | ① 树状投影非破坏 ② split-turn 双摘要 ③ 20+ 家 provider overflow 正则库 |
 

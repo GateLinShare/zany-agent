@@ -20,7 +20,7 @@ core/
   summarize.py    上下文压缩(改写式, 80k 触发, 保尾 20 条)
   sessions.py     会话持久化:Anthropic 原生 dict 直接 JSON 落盘
   mcp.py          MCP 工具加载(单次连接即用即走)
-  skills.py       skills 清单注入 system prompt(渐进披露; 项目 skills/、.claude/skills + 全局 ~/.miniagent/skills)
+  skills.py       skills 清单注入 system prompt(渐进披露; 项目 skills/、.claude/skills + 全局 ~/.zany/skills)
   messages.py     消息块辅助(text_of 等)
 ```
 
@@ -39,7 +39,7 @@ core/
 | **.env 随仓库走** | 用户明确要求：内网私有仓库，.env(含密钥)直接提交，方便多机部署；不要往 .gitignore 加 .env、不要 git rm --cached .env（曾自作主张被纠正） |
 | **TUI 对齐 Claude Code 观感** | 正文/标题 #d4d4d4, markdown 标题白粗体(覆盖点: `rich.themes.DEFAULT.styles` 单例 + `Style.parse()`, 改 DEFAULT_STYLES 字典无效——DEFAULT import 时已 copy；塞 str 会在 get_style 崩)；thinking 折叠 3 行(SHOW_THINKING 开全量)；轮末摘要行 `Thought for Xs, ran N tool calls`(dim, 前置空行) |
 | **回合侧账 marks** | Thought/tool 计数是运行时局部变量, Anthropic 消息里没有 → 会话文件顶层 `marks=[{at, thought, tools}]`, at=回合结束时的消息条数做对齐锚；恢复回放按回合分组(真用户消息开组, tool_result 排除), 锚失配(压缩改写后)静默跳过不误导；老会话文件无 marks, 只有新回合才有 |
-| **品牌更名 2026-11-02** | miniagent → **zany-agent**（裸仓库 `/data01/tsn/repos/zany-agent.git`），CLI/品牌 = **zany**；运行时数据根仍为 `~/.miniagent`（sessions/USER.md/skills，与 develop/bak/容器三网关共用，改名要迁数据停服）；环境变量前缀 `ZANY_*`（如 ZANY_USER_MEMORY）；develop/bak 工作目录名与 tsn-miniagent-gateway 容器名未随更名 |
+| **品牌更名 2026-11-02** | miniagent → **zany-agent**（裸仓库 `/data01/tsn/repos/zany-agent.git`），CLI/品牌 = **zany**；运行时数据根 `~/.zany`（sessions/USER.md/skills，2026-11-02 已从 ~/.miniagent 迁入，旧路径留软链过渡，待全部旧实例退出后删）；环境变量前缀 `ZANY_*`（如 ZANY_USER_MEMORY） |
 | **风格包插插拔** | 常驻行为(人格/规则)走 `styles/<name>.md` + `.env` 的 `PROMPT_PACKS`(逗号分隔), `agent.prompt_packs()` 全文拼进 SYSTEM_PROMPT(含 task 子代理)——常驻文本不能走 skills 的渐进披露(模型不会每轮自觉读全文)；按需技能仍走 `skills/` 渐进披露, 两条通道别混。不做通用 hook 系统, 等真实需求(skills/MCP 表达不了、loop.py 出现第 2 个特判)再抽 |
 
 git 分支约定（用户定的）：master 的提交要同步到 develop —— master 上提交后，
@@ -72,7 +72,7 @@ bash deploy.sh             # 一键部署(fresh clone → uv/依赖/浏览器内
 | edit_file 核心语义：count + 唯一性校验 + replace | `backends/filesystem.py:521` | `core/tools.py` `_edit` 精确分支 |
 | task 子代理语义：子代理无 task、只回传结论 | `middleware/subagents.py` | `core/subagent.py` |
 | skills 渐进披露：清单常驻、SKILL.md 按需读 | `middleware/` skills 部分 | `core/skills.py` |
-| 反面参照：压缩用非破坏 offload(依赖 checkpointer) | `libs/deepagents/.../summarize` | 我们选**改写式**(`core/summarize.py`)，因 ~/.miniagent/sessions/*.json 直接覆盖写无 checkpointer |
+| 反面参照：压缩用非破坏 offload(依赖 checkpointer) | `libs/deepagents/.../summarize` | 我们选**改写式**(`core/summarize.py`)，因 ~/.zany/sessions/*.json 直接覆盖写无 checkpointer |
 
 框架本身（LangGraph/middleware/checkpointer）已被**砍掉**——这是本项目的核心决策：依赖协议实现，不依赖编排框架。
 
@@ -110,7 +110,7 @@ bash deploy.sh             # 一键部署(fresh clone → uv/依赖/浏览器内
 | 对照点 | 它 | 我们 |
 |---|---|---|
 | 单协议贯穿 | OmniMessage 同时是接口/Trace/引擎消息 | Anthropic 原生消息同时是模型输入/落盘格式 |
-| 文件即状态 | `~/.penguin/data` 追加式 JSONL Trace | `~/.miniagent/sessions/*.json` 直接覆盖写 |
+| 文件即状态 | `~/.penguin/data` 追加式 JSONL Trace | `~/.zany/sessions/*.json` 直接覆盖写 |
 | 引擎零业务 | core 不认识厂商 SDK 和 UI | `core/loop.py` 不区分工具来源、UI 用事件元组解耦 |
 
 ### 2.5 hermes-agent（进阶功能参照）
