@@ -659,7 +659,7 @@ class ChatApp(App):
         状态提示 + ctx 占用; set_busy 也走这里, 提示随忙/闲切换。"""
         self._last_tin = tin
         state = ("[yellow]» 运行中 · ctrl+c 打断[/yellow]" if self.busy
-                 else "[dim]» /new 新对话 · /resume 恢复 · /goal 持续目标 · exit 退出[/dim]")
+                 else "[dim]» /new 新对话 · /resume 恢复 · /goal 持续目标 · ctrl+z 回退输入 · exit 退出[/dim]")
         self.query_one("#ctx", Static).update(f"{state} [dim]· {ctx_bar(tin)}[/dim]")
 
     # 贴图走文件路径: [图片: 路径] 占位符(core/messages.user_content 转成 image 块)。
