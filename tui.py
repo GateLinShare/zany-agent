@@ -570,7 +570,7 @@ class ChatApp(App):
                     )
                 elif kind == "turn_limit":
                     self.call_from_thread(
-                        self.log_write, f"[yellow]⏹ 已达最大轮数 {ev[1]}, 本轮中止(继续发消息可接着干)[/yellow]"
+                        self.log_write, f"[yellow]■ 已达最大轮数 {ev[1]}, 本轮中止(继续发消息可接着干)[/yellow]"
                     )
                 self.call_from_thread(self.live_update, think_buf, text_buf)
             self.state["messages"] = msgs
