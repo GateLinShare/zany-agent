@@ -29,7 +29,7 @@ for line in ENV_PATH.read_text().splitlines():
         key, _, value = line.partition("=")
         os.environ.setdefault(key.strip(), value.strip())
 
-from core.loop import Agent
+from core.loop import Agent, user_memory_path
 from core.mcp import load_mcp_tools
 from core.messages import text_of  # noqa: F401  (tui/eval 从这取)
 from core.model import ChatModel, make_client
@@ -37,7 +37,7 @@ from core.skills import skill_section
 from core.subagent import make_task_tool
 from core.tools import builtin_tools
 
-SYSTEM_PROMPT = """你是一个编码助手, 在当前工作目录内完成用户的编码任务。
+SYSTEM_PROMPT = f"""你是一个编码助手, 在当前工作目录内完成用户的编码任务。
 回答保持简洁,操作文件时展示清晰路径。
 最终回复只给结论和结果: 做了什么一句话带过, 不复述工具调用过程, 不贴大段命令输出;
 说明性文字几句话内说清, 不堆段落, 不写"首先/接下来"式施工流水账;
@@ -46,7 +46,7 @@ SYSTEM_PROMPT = """你是一个编码助手, 在当前工作目录内完成用�
 不要联想之前的对话过程, 除非用户明确在问问题。
 长期记忆分两份, 每轮开工自动载入:
 项目约定/结构/规范写进 /AGENTS.md(不存在就创建, 随项目 git 提交);
-个人协作偏好、用户纠正过你的事写进真实路径 ~/.miniagent/USER.md
+个人协作偏好、用户纠正过你的事写进真实路径 {user_memory_path()}
 (不存在就创建, 每条一行带日期, 不进任何项目仓库),
 用真实绝对路径 write_file/edit_file 写。
 task 工具派 general-purpose 子代理独立跑子任务(检索、批量评测等),

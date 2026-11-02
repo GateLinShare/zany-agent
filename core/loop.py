@@ -7,12 +7,18 @@
 """
 
 import json
+import os
 from pathlib import Path
 
 from .messages import text_of, tool_uses
 from .summarize import maybe_summarize
 
 MAX_TURNS = 40  # 单次 run 的工具轮数上限, 防模型打转烧钱
+
+
+def user_memory_path() -> Path:
+    """个人记忆文件: MINIAGENT_USER_MEMORY 优先(服务器多人共用时各自 export 指向自己的), 默认 ~/.miniagent/USER.md。"""
+    return Path(os.environ.get("MINIAGENT_USER_MEMORY") or Path.home() / ".miniagent" / "USER.md")
 
 
 class Agent:
@@ -56,12 +62,12 @@ class Agent:
         self._interrupt_requested = None
 
     def _system(self) -> str:
-        """每轮重读 AGENTS.md(项目记忆) + ~/.miniagent/USER.md(个人记忆) —— 改记忆不用重启。"""
+        """每轮重读 AGENTS.md(项目记忆) + 个人记忆(路径见 user_memory_path) —— 改记忆不用重启。"""
         s = self.system_base
         mem = Path(self.workdir) / "AGENTS.md"
         if mem.exists():
             s += f"\n\n# 项目记忆(AGENTS.md)\n{mem.read_text(encoding='utf-8')}"
-        user_mem = Path.home() / ".miniagent" / "USER.md"
+        user_mem = user_memory_path()
         if user_mem.exists():
             s += f"\n\n# 个人记忆(USER.md)\n{user_mem.read_text(encoding='utf-8')}"
         return s
