@@ -2,7 +2,7 @@
 
 > **状态：调研，未实现。** 参照系是 DeepSeek 官方 agent harness（下称 DSH，本地
 > `/data01/tsn/code/deepseek-harness`，2026-11 检出）。回答两个问题：DSH 的
-> "万物即插件"怎么做的；miniagent 该抄哪部分——把 master 当基座、develop 的增量做成插件。
+> "万物即插件"怎么做的；zany-agent 该抄哪部分——把 master 当基座、develop 的增量做成插件。
 > DSH 部分结论经抽查核对（cordis 行数 / workspace 包数 / architecture.md 原文）。
 
 ## 0. 结论先行
@@ -10,7 +10,7 @@
 1. DSH 把"可替换"做成了全局架构原则：内核只剩一个 2811 行的 DI/事件框架（Cordis），
    其余 20.7 万行 TS 全是插件，连 agent loop、模型接入、UI 面板都能从一行 YAML 换掉。
    代价是 381 个包、15+ 核心概念、框架本身要自维护（vendor 里攒了 25 条本地补丁）。
-2. miniagent 不需要那套全量机制。develop 相对 master 的增量（~2647 行，35 个文件）
+2. zany-agent 不需要那套全量机制。develop 相对 master 的增量（~2647 行，35 个文件）
    实际只有两类：**宿主应用**（feishu gateway + docker，包裹 agent 会话，不在 loop 内）
    和 **loop 内能力**（browser 工具、peers 协作）。
 3. 建议的最小方案：**不做通用插件框架**，沿用已有的三条缝（extras 依赖分组 /
@@ -75,7 +75,7 @@
 - 连 vendor 框架都在持续打补丁（25 条），等于背了一个自研框架的维护成本。
 - 收益端确实真实：每层可从配置替换（fs+subprocess 指向远程 sandbox，Bash/PTY/LSP
   一起搬走）；组合可被 agent 自己管理；卸载语义严格可逆。但这些都建立在
-  "产品线多、生态开放、快速迭代"的前提上——miniagent 当前只有 1 个内核 + 2 个宿主。
+  "产品线多、生态开放、快速迭代"的前提上——zany-agent 当前只有 1 个内核 + 2 个宿主。
 
 ## 2. master 与 develop 的现状分歧（2026-11-03，git diff 数据）
 
@@ -107,12 +107,12 @@ develop 独有 58 个提交（含大量 merge），文件级增量 35 个文件 
 
 ## 3. 方案：master 基座，develop 增量按两类归位
 
-### 3.1 先校准概念：miniagent 的"插件"应是两层，不是 DSH 的一层
+### 3.1 先校准概念：zany-agent 的"插件"应是两层，不是 DSH 的一层
 
 DSH 的 profile/bundle 两层实际对应的是**宿主形态**（web/headless/sdk/acp）和
-**能力组合**。miniagent 同构映射：
+**能力组合**。zany-agent 同构映射：
 
-| DSH 概念 | miniagent 对应 | 现状 |
+| DSH 概念 | zany-agent 对应 | 现状 |
 |---|---|---|
 | profile（宿主组合） | tui.py / gateway/main.py / serve.py | 三个宿主已天然分层 |
 | bundle/patch（loop 内能力） | 工具注册 + extras 依赖 | 已有 `add_tools` 缝，缺"开关" |
@@ -124,7 +124,7 @@ master 收编能力代码但**不收编依赖**，即"代码在基座、依赖�
 
 - `core/browser.py`、`core/peers.py` 合入 master；pyproject 把
   `playwright` 挪进 `[project.optional-dependencies] browser` extra。
-- `build_agent()` 增加一个参数（或读 `.env` 的 `MINIAGENT_PLUGINS=browser,peers`），
+- `build_agent()` 增加一个参数（或读 `.env` 的 `ZANY_PLUGINS=browser,peers`），
   loader ~30 行：逐个 `importlib.import_module(f"core.plugins.{name}")`，调其
   `register(agent)` → 内部走既有 `add_tools()`；**import 失败按"错误即文本"原则降级
   为该工具缺失，不崩启动**。
@@ -149,7 +149,7 @@ def load_plugins(agent, names: list[str]):
 gateway 包裹着多会话、cron、飞书协议，是 DSH 里 profile 级的东西（`dsh web` 之于
 core 的关系），硬塞进 agent loop 的插件缝是类别错误。两个可选落点，等拍板：
 
-- **A. 独立仓** `miniagent-gateway`：依赖 master（git 依赖或 pip 装 base 包），
+- **A. 独立仓** `zany-agent-gateway`：依赖 master（git 依赖或 pip 装 base 包），
   gateway/serve/docker 全部迁出 develop。最彻底，master/develop 双分支矛盾自然消解。
 - **单仓双宿主**：master 收 `gateway/` 代码但默认不装 feishu extra（feishu extra
   留 develop 或也上 master——它只是两个纯 py 依赖）。与"gateway 只在 develop"
@@ -169,7 +169,7 @@ core 的关系），硬塞进 agent loop 的插件缝是类别错误。两个可
 
 ### 3.5 若采纳，迁移顺序（每步独立可回退，均未实施）
 
-1. master 加 `core/plugins/` loader 草图 + `MINIAGENT_PLUGINS` 开关（不改任何现有行为）。
+1. master 加 `core/plugins/` loader 草图 + `ZANY_PLUGINS` 开关（不改任何现有行为）。
 2. browser/peers/serve 迁入，依赖进 extras；develop 的对应文件删除、改为配置启用。
 3. 宿主层二选一（独立仓 or 单仓双宿主），gateway 迁移。
 4. 双分支合并策略收尾：develop 若只剩宿主层，考虑降级为 feature 分支甚至归档。
@@ -178,7 +178,7 @@ core 的关系），硬塞进 agent loop 的插件缝是类别错误。两个可
 
 1. **双分支还要不要**：插件化的终局是 master 一条线 + 可选 extra，develop 的存在
    意义只剩 gateway；若走 3.3 独立仓方案，develop 可归档。
-2. `.env` 随仓库走的约定下，`MINIAGENT_PLUGINS` 默认值各 checkout 不同（gateway
+2. `.env` 随仓库走的约定下，`ZANY_PLUGINS` 默认值各 checkout 不同（gateway
    开 browser+feishu，TUI 机不开），.env 分叉管理要不要立规矩。
 3. peers 协作（a2a/看板）是能力插件还是宿主能力——它有自己的常驻进程语义，
    倾向先不迁，单独评估。

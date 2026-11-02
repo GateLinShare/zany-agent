@@ -5,7 +5,7 @@
 ## 一键部署
 
 ```bash
-git clone <仓库地址> && cd miniagent
+git clone <仓库地址> && cd zany-agent
 bash deploy.sh
 ```
 
@@ -16,20 +16,20 @@ bash deploy.sh
 | 1. uv | 没有才装 | 官方安装器，落 `~/.local/bin` |
 | 2. uv sync | 按本分支 pyproject/lock 装依赖 | develop 自动带 `--extra feishu`（gateway 依赖），master 不需要；python 版本由 uv 自动配 |
 | 3. 浏览器内核 | 调 `install_browser.sh` | assets 自带 zip，离线可装；`.pw-browsers` 已有就跳过 |
-| 4. 全局命令 `miniagent` | 生成 shim | 有写权限写 `/usr/local/bin`，否则写 `~/.local/bin`（需在 PATH，脚本会提示） |
+| 4. 全局命令 `zany` | 生成 shim | 有写权限写 `/usr/local/bin`，否则写 `~/.local/bin`（需在 PATH，脚本会提示） |
 
 装完即用（任意目录）：
 
 ```bash
-miniagent                    # TUI
-miniagent -p "..."           # 无头单次
+zany                    # TUI
+zany -p "..."           # 无头单次
 <仓库>/gateway/run.sh start  # 飞书网关（develop 分支功能，需 .env 配 FEISHU_*）
 uv run eval/main.py [name]   # 评测
 ```
 
-## 全局命令 miniagent 的语义
+## 全局命令 zany 的语义
 
-`miniagent` 是个 bash shim，由 `deploy.sh` 第 4 步按部署路径生成：
+`zany` 是个 bash shim，由 `deploy.sh` 第 4 步按部署路径生成：
 
 ```bash
 unset VIRTUAL_ENV  # 残留 venv 变量会让 uv run 每次告警

@@ -1,6 +1,6 @@
 # agent.md — 项目架构与借鉴来源
 
-> 本项目：`/data01/tsn/code/tsn_files/miniagent`
+> 本项目：`/data01/tsn/code/tsn_files/zany-agent`
 > 定位：**无框架手写的 mini coding agent**（GLM，走 anthropic 兼容代理）。从
 > deepagents + langchain 迁移而来，协议只有一套、循环只有一个、工具只有一种形态。
 > 配套文档：`docs/architecture.md`（架构与组件全量文档）、`docs/interview-v2.md`（架构叙事与迁移复盘）。
@@ -39,13 +39,14 @@ core/
 | **.env 随仓库走** | 用户明确要求：内网私有仓库，.env(含密钥)直接提交，方便多机部署；不要往 .gitignore 加 .env、不要 git rm --cached .env（曾自作主张被纠正） |
 | **TUI 对齐 Claude Code 观感** | 正文/标题 #d4d4d4, markdown 标题白粗体(覆盖点: `rich.themes.DEFAULT.styles` 单例 + `Style.parse()`, 改 DEFAULT_STYLES 字典无效——DEFAULT import 时已 copy；塞 str 会在 get_style 崩)；thinking 折叠 3 行(SHOW_THINKING 开全量)；轮末摘要行 `Thought for Xs, ran N tool calls`(dim, 前置空行) |
 | **回合侧账 marks** | Thought/tool 计数是运行时局部变量, Anthropic 消息里没有 → 会话文件顶层 `marks=[{at, thought, tools}]`, at=回合结束时的消息条数做对齐锚；恢复回放按回合分组(真用户消息开组, tool_result 排除), 锚失配(压缩改写后)静默跳过不误导；老会话文件无 marks, 只有新回合才有 |
-| **风格包插拔** | 常驻行为(人格/规则)走 `styles/<name>.md` + `.env` 的 `PROMPT_PACKS`(逗号分隔), `agent.prompt_packs()` 全文拼进 SYSTEM_PROMPT(含 task 子代理)——常驻文本不能走 skills 的渐进披露(模型不会每轮自觉读全文)；按需技能仍走 `skills/` 渐进披露, 两条通道别混。不做通用 hook 系统, 等真实需求(skills/MCP 表达不了、loop.py 出现第 2 个特判)再抽 |
+| **品牌更名 2026-11-02** | miniagent → **zany-agent**（裸仓库 `/data01/tsn/repos/zany-agent.git`），CLI/品牌 = **zany**；运行时数据根仍为 `~/.miniagent`（sessions/USER.md/skills，与 develop/bak/容器三网关共用，改名要迁数据停服）；环境变量前缀 `ZANY_*`（如 ZANY_USER_MEMORY）；develop/bak 工作目录名与 tsn-miniagent-gateway 容器名未随更名 |
+| **风格包插插拔** | 常驻行为(人格/规则)走 `styles/<name>.md` + `.env` 的 `PROMPT_PACKS`(逗号分隔), `agent.prompt_packs()` 全文拼进 SYSTEM_PROMPT(含 task 子代理)——常驻文本不能走 skills 的渐进披露(模型不会每轮自觉读全文)；按需技能仍走 `skills/` 渐进披露, 两条通道别混。不做通用 hook 系统, 等真实需求(skills/MCP 表达不了、loop.py 出现第 2 个特判)再抽 |
 
 git 分支约定（用户定的）：master 的提交要同步到 develop —— master 上提交后，
 merge master 进 develop 再 push 两个分支；develop 上自己的提交不反向进 master。
 AGENTS.md 同样参与同步，两分支保持一致。
 develop 分支的独立工作目录在 `/data01/tsn/code/tsn_files/miniagent-develop`（master 在
-`tsn_files/miniagent`）：push 完要去那边 `git pull --ff-only` 同步到最新。
+`tsn_files/zany-agent`）：push 完要去那边 `git pull --ff-only` 同步到最新。
 **feishu gateway（gateway/ 目录 + docs/feishu-integration.md）只在 develop 实现，master 不加这些功能**（用户 2026-10-31 定）。
 
 常用命令：
@@ -54,7 +55,7 @@ develop 分支的独立工作目录在 `/data01/tsn/code/tsn_files/miniagent-dev
 uv run tui.py              # TUI
 uv run tui.py -p "..."     # 无头单次
 uv run eval/main.py [name]      # 评测(用例在 evals/cases.jsonl)
-bash deploy.sh             # 一键部署(fresh clone → uv/依赖/浏览器内核/全局 miniagent 命令), 见 docs/deploy.md
+bash deploy.sh             # 一键部署(fresh clone → uv/依赖/浏览器内核/全局 zany 命令), 见 docs/deploy.md
 ```
 
 ## 2. 借鉴来源（对照表）
