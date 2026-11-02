@@ -1,4 +1,4 @@
-# mini-agent:设计与实现 —— 无框架版
+# zany-agent:设计与实现 —— 无框架版
 
 
 > 一个零 agent 框架的编码 agent:loop、工具、上下文压缩、子代理、评测闭环

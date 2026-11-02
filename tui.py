@@ -333,7 +333,7 @@ class ChatLog(RichLog):
 
 
 class ChatApp(App):
-    TITLE = "deepagents mini-agent"
+    TITLE = "zany"
     # ctrl+c 语义学 hermes: 运行中第一次=打断当前轮, 第二次(或空闲时)=退出
     BINDINGS = [("ctrl+c", "quit", "打断 / 退出")]
 
@@ -368,7 +368,7 @@ class ChatApp(App):
         self.update_ctx(0)
         self.query_one("#prompt", ChatPrompt).focus()  # 焦点常驻输入框, 进来直接能打字
         log = self.query_one("#chatlog", RichLog)
-        log.write(f"[bold]mini-agent[/] (tools: {', '.join(self.agent.tools)})")
+        log.write(f"[bold]zany[/] (tools: {', '.join(self.agent.tools)})")
         log.write(f"[dim]工作目录: {self.workdir}[/dim]\n")  # 快捷键提示在输入框下常驻行, 不占横幅
         if self.resume_id is not None:  # uv run tui.py -r [id] 启动即恢复
             if self.resume_id:
@@ -729,7 +729,7 @@ class ChatApp(App):
         self.update_ctx(0)
         log = self.query_one("#chatlog", RichLog)
         log.clear()
-        log.write(f"[bold]mini-agent[/] (tools: {', '.join(self.agent.tools)})")
+        log.write(f"[bold]zany[/] (tools: {', '.join(self.agent.tools)})")
         log.write(f"[dim]工作目录: {self.workdir}[/dim]\n")
 
     def do_resume(self, path) -> None:

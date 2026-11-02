@@ -1,7 +1,7 @@
 [project]
-name = "mini-agent"
+name = "zany-agent"
 version = "0.1.0"
-description = "Mini coding agent, 无框架手写核心 (core/)"
+description = "zany-agent: 无框架手写核心 (core/)"
 requires-python = ">=3.11,<4.0"
 dependencies = [
     "anthropic>=0.40",
