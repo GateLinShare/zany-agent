@@ -26,26 +26,32 @@ else
   bash install_browser.sh
 fi
 
-# 4/4 全局命令 zany: 代码路径固定到本 checkout, 调用时的 cwd 即 agent 工作目录
-if [ -w /usr/local/bin ] || [ "$(id -u)" = 0 ]; then
-  BIN=/usr/local/bin/zany
+# 4/4 全局命令: 代码路径固定到本 checkout, 调用时的 cwd 即 agent 工作目录。
+# master 装 zany; develop 装 zany-dev(避免 develop 上跑 deploy.sh 把全局 zany 覆盖到 develop 代码)
+if git branch --show-current | grep -q '^develop$'; then
+  CMD=zany-dev
 else
-  BIN="$HOME/.local/bin/zany"
+  CMD=zany
+fi
+if [ -w /usr/local/bin ] || [ "$(id -u)" = 0 ]; then
+  BIN=/usr/local/bin/$CMD
+else
+  BIN="$HOME/.local/bin/$CMD"
   mkdir -p "$HOME/.local/bin"
 fi
 cat > "$BIN" <<EOF
 #!/usr/bin/env bash
-# mini coding agent: 以当前目录为工作项目启动(cwd 即 workdir, AGENTS.md/文件工具/execute 全锚定它)
+# zany coding agent: 以当前目录为工作项目启动(cwd 即 workdir, AGENTS.md/文件工具/execute 全锚定它)
 unset VIRTUAL_ENV  # 残留变量会让 uv run 每次警告
 exec uv run --project $REPO python $REPO/tui.py "\$@"
 EOF
 chmod +x "$BIN"
 echo "[4/4] 全局命令: $BIN"
-[ "$BIN" = "$HOME/.local/bin/zany" ] && echo "  (确保 $HOME/.local/bin 在 PATH 里)"
+[ "$BIN" = "$HOME/.local/bin/$CMD" ] && echo "  (确保 $HOME/.local/bin 在 PATH 里)"
 
 echo
 echo "部署完成。用法(任意目录):"
-echo "  zany                   # TUI"
-echo "  zany -p \"...\"          # 无头单次"
+echo "  $CMD                   # TUI"
+echo "  $CMD -p \"...\"          # 无头单次"
 echo "  <仓库>/gateway/run.sh start # 飞书网关(需 .env 配 FEISHU_*)"
 echo "  uv run eval/main.py [name]  # 评测"
