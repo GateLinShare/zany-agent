@@ -13,9 +13,10 @@ import re
 from pathlib import Path
 
 # .env(若 agent.py 已加载)优先; 否则指向项目内 .pw-browsers(install_browser.sh 的解压目标)
+# 插件文件在 core/plugins/ 下, 上溯两级才是仓库根(别用 parent.parent)
 os.environ.setdefault(
     "PLAYWRIGHT_BROWSERS_PATH",
-    str(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".pw-browsers")),
+    str(Path(__file__).resolve().parents[2] / ".pw-browsers"),
 )
 
 _SNAP_MAX = 8000  # 快照上限(字符), 大页面防刷爆上下文
