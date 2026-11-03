@@ -11,9 +11,7 @@
 
 ## master 分支：极简内核
 
-内置工具只有 5 个：`ls`、`read_file`、`write_file`、`edit_file`、`execute`。其余能力一律外置，不进内核：
-
-- `task` 子代理（只回传结论，不递归派生）
+内置工具只有 6 个：5 个基础操作（`ls`、`read_file`、`write_file`、`edit_file`、`execute`）+ 1 个 `task` 子代理（只回传结论，不递归派生）。其余能力按需外挂，不占内核：
 - skills 渐进披露（清单常驻，SKILL.md 按需读）
 - MCP 工具（单次连接即用即走）
 
