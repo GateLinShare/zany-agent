@@ -10,14 +10,26 @@
 - skills 渐进披露（清单常驻，SKILL.md 按需读）
 - MCP 工具（单次连接即用即走）
 
+### 部署与启动
+
 ```bash
-bash deploy.sh             # 一键部署: uv + 依赖 + 全局命令 zany(无浏览器模块, 自动跳过内核)
+bash deploy.sh   # 一键部署: uv + 依赖 + 全局命令 zany(无浏览器模块, 自动跳过内核)
+```
+
+部署后任意目录 `zany` 即启动（cwd 就是 agent 工作目录）：
+
+```bash
+zany             # TUI
+zany -p "..."    # 无头单次
+```
+
+### 开发模式（不装全局命令，仓库内直接跑）
+
+```bash
 uv run tui.py              # TUI
 uv run tui.py -p "..."     # 无头单次
 uv run eval/main.py [name] # 评测（用例在 evals/cases.jsonl）
 ```
-
-部署后任意目录 `zany` 即启动（cwd 就是 agent 工作目录）。
 
 ## develop 分支：在 master 之上增加
 
