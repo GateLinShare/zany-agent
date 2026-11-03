@@ -18,8 +18,10 @@ fi
 echo "[2/4] uv sync$(grep -q 'feishu' pyproject.toml && echo ' --extra feishu')"
 uv sync $(grep -q 'feishu' pyproject.toml && echo '--extra feishu')
 
-# 3/4 浏览器内核: assets 自带 zip, 离线可装; 已装过就跳过
-if ls .pw-browsers/chromium_headless_shell-1228/*/chrome-headless-shell >/dev/null 2>&1; then
+# 3/4 浏览器内核: 浏览器属 develop 增量(master 无 core/browser.py, 跳过); assets 自带 zip, 离线可装; 已装过就跳过
+if [ ! -f core/browser.py ]; then
+  echo "[3/4] 本分支无浏览器模块, 跳过内核安装"
+elif ls .pw-browsers/chromium_headless_shell-1228/*/chrome-headless-shell >/dev/null 2>&1; then
   echo "[3/4] 浏览器内核已装, 跳过"
 else
   echo "[3/4] 安装浏览器内核"
@@ -53,5 +55,7 @@ echo
 echo "部署完成。用法(任意目录):"
 echo "  $CMD                   # TUI"
 echo "  $CMD -p \"...\"          # 无头单次"
-echo "  <仓库>/gateway/run.sh start # 飞书网关(需 .env 配 FEISHU_*)"
+if grep -q 'feishu' pyproject.toml; then
+  echo "  <仓库>/gateway/run.sh start # 飞书网关(需 .env 配 FEISHU_*)"
+fi
 echo "  uv run eval/main.py [name]  # 评测"
