@@ -13,11 +13,9 @@ from pathlib import Path
 
 from .tools import Tool
 
-MCP_CONFIG = Path(__file__).resolve().parent.parent / "mcp_servers.json"
+MCP_CONFIG = Path.home() / ".zany" / "mcp_servers.json"  # 运行时数据根, 不进 git
 PROBE_TIMEOUT = 15   # 单台服务器握手+list_tools 超时: uvx 拉包卡 pypi 时快速认输
 CALL_TIMEOUT = 60    # 工具实际调用超时(抓网页可能慢, 放宽)
-
-MCP_CONFIG = Path(__file__).resolve().parent.parent / "mcp_servers.json"
 
 
 def config_stamp() -> float:
@@ -45,9 +43,11 @@ async def _server_cm(spec: dict):
         from mcp.client.streamable_http import streamable_http_client
 
         if spec.get("headers"):
-            import httpx
+            # create_mcp_http_client: 官方推荐超时(connect 30s / read 300s);
+            # 手建 AsyncClient 默认 read 5s, 服务器 SSE ping 间隔 15s 必断流
+            from mcp.shared._httpx_utils import create_mcp_http_client
 
-            cm = streamable_http_client(spec["url"], http_client=httpx.AsyncClient(headers=spec["headers"]))
+            cm = streamable_http_client(spec["url"], http_client=create_mcp_http_client(headers=spec["headers"]))
         else:
             cm = streamable_http_client(spec["url"])
         async with cm as (read, write):
