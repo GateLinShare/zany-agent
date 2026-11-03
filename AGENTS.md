@@ -34,7 +34,7 @@ core/
 | **路径不做重写** | 文件工具与 execute 同一套文件系统视图（pi/hermes 同款）：绝对路径字面直用，相对路径相对 workdir；无虚拟根、无越界 jail，约定写进各文件工具 description（2026-10-31 移除虚拟根） |
 | **账本当场接** | 真实 usage 只在流式聚合时能拿到（message_start/message_delta），聚合时顺手记账；展示用真实值，est 粗估只做压缩触发兜底 |
 | **压缩是 postflight** | 对话完（每轮响应后）用真实 prompt_tokens 判定触发（hermes 语义）；防抖（降幅<10%连续两次停）和熔断（摘要失败即停）不可拆，防抖必须同口径 est vs est |
-| **MCP 快速认输** | pypi 不通的环境里 uvx 会卡几分钟:probe 整体 wait_for 15s、工具调用 60s,超时跳过;stdio 子进程 stderr 收 devnull(MCP_STDERR=1 透传);TUI 界面先起、MCP 后台补(build_agent(with_mcp=False) + add_tools),except 不写 BaseException 防 Ctrl-C 被吞 |
+| **MCP 快速认输** | pypi 不通的环境里 uvx 会卡几分钟:probe 整体 wait_for 15s、工具调用 60s,超时跳过;stdio 子进程 stderr 收 devnull(MCP_STDERR=1 透传);TUI 界面先起、MCP 后台补(build_agent(with_mcp=False) + add_tools),except 不写 BaseException 防 Ctrl-C 被吞;配置在 `~/.zany/mcp_servers.json`(2026-11-03 从项目根挪入, 不进 git, 各 checkout 共享一份), 项目根同名文件已废弃 |
 | **工具防爆层** | 截断保头 40%+尾 60%(错误在头、新输出在尾)、execute 超长全量落盘给路径、ls/read 上限提示带精确值、edit BOM/CRLF 透明;行为熔断账本 `_Ledger`(重复读去重/edit 连败升级/同命令警告)挂在 Tool.ledger,压缩后由 `loop.reset_tool_ledger()` 清空 -- 都是提示不是阻断,把"你在循环里"喟给模型 |
 | **goal 模式** | `/goal <目标>` 设目标后宿主自动续跑(codex ext/goal 语义, 不要 judge)。状态真身是 tui 侧 dict(工具闭包共享), 每轮末尾 turn_finished 现场注入投影 user 消息(压缩免疫); update_goal(complete/blocked/paused) 申报状态; 预算 GOAL_MAX_TURNS(.env 可配, 默认 500) 耗尽转 paused, 打断/异常轮不续。落盘走会话 JSON 顶层 `goal` 键, /resume 捡回; 优先级: 排队用户文本 > cron > goal。测试 tests/test_goal.py |
 | **.env 不入库** | 2026-11-03 起改为密钥不入库：`.env` 已 `git rm --cached` 并 gitignore，键清单与默认值在 `env.example`（新机部署 `cp env.example .env` 后填密钥）；历史密钥已于 2026-11-03 用 filter-branch 全量重写清除（替换为 ***REMOVED***，bare 强推 + gc，三个 checkout 已重置）；密钥本身仍建议轮换 |
