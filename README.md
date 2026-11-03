@@ -18,8 +18,12 @@ uv run eval/main.py [name] # 评测（用例在 evals/cases.jsonl）
 
 ## develop 分支：在 master 之上增加
 
-- **飞书 gateway**（`gateway/`）：飞书 bot 收发、群聊 @ 检测、cron 定时任务，见 [docs/feishu-integration.md](docs/feishu-integration.md)
-- **浏览器内核离线安装**：`install_browser.sh`，配合 `deploy.sh` 一键部署
+工具与运行形态：
+
+- **浏览器工具**（`core/browser.py`）：agent 可直接驱动的本地无头浏览器（navigate/click/type）
+- **peer 多实例协作**（`core/peers.py`）：`tui.py --serve` 起常驻服务，跨机派任务/查进度/换码重启（A2A 语义）
+- **飞书 gateway**（`gateway/`）：飞书 bot 私聊 / 群 @ 远程控制编码，WebSocket 长连接收事件 + cron 定时任务，见 [docs/feishu-integration.md](docs/feishu-integration.md)
+- **容器化部署**（`docker/`）：两层镜像（zany-base / zany-gateway）+ docker-compose，gateway 可跑容器
 
 ### 浏览器包手动下载
 
