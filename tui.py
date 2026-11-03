@@ -451,20 +451,26 @@ class ChatApp(App):
         self.run_worker(self._load_mcp_worker, thread=True)  # MCP probe 慢, 别堵界面
 
     def _load_mcp_worker(self) -> None:
-        from core.mcp import load_mcp_tools
+        from core.mcp import failed_servers, load_mcp_tools
 
-        try:
-            tools = load_mcp_tools()
-        except Exception:
-            return
-        if not tools:
-            return
-
-        def apply() -> None:
+        def apply(tools) -> None:
             added = self.agent.add_tools(tools)
-            self.log_write(f"[dim](MCP 工具就绪: {', '.join(added)})[/dim]")
+            if added:
+                # apply 经 call_from_thread 已在 UI 线程, 这里直接写 log
+                self.log_write(f"[dim](MCP 工具就绪: {', '.join(added)})[/dim]")
 
-        self.call_from_thread(apply)
+        # 启动 probe 失败(服务器晚起)每 60s 全量重试补挂, 共 5 分钟窗口;
+        # 运行中断线不用管(_call 每次即开即用重连), 全失败则等 mtime 变更触发重建
+        for _ in range(6):
+            try:
+                tools = load_mcp_tools()
+            except Exception:
+                tools = []
+            if tools:
+                self.call_from_thread(apply, tools)
+            if not failed_servers():
+                return
+            time.sleep(60)
 
     # ---- UI 工具 ----
 
