@@ -4,3 +4,6 @@ __pycache__/
 .idea/
 .pw-browsers/
 .env
+
+# 锁文件按机器重算, 不入库(2026-11-05 用户定)
+uv.lock
