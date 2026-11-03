@@ -8,6 +8,7 @@ import asyncio
 import contextlib
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -16,6 +17,18 @@ from .tools import Tool
 MCP_CONFIG = Path.home() / ".zany" / "mcp_servers.json"  # 运行时数据根, 不进 git
 PROBE_TIMEOUT = 15   # 单台服务器握手+list_tools 超时: uvx 拉包卡 pypi 时快速认输
 CALL_TIMEOUT = 60    # 工具实际调用超时(抓网页可能慢, 放宽)
+
+_failed: set[str] = set()  # probe 失败的服务器名, TUI 每 60s 重试补挂(failed_servers())
+
+
+def failed_servers() -> set[str]:
+    """启动 probe 失败的服务器名单; 运行中断线与此无关(_call 每次即开即用重连)。"""
+    return set(_failed)
+
+
+def _sanitize(name: str) -> str:
+    """pi/hermes 同款: 非 [A-Za-z0-9_] 归 _, 供 mcp__<server>__<tool> 拼接。"""
+    return re.sub(r"[^A-Za-z0-9_]", "_", name)
 
 
 def config_stamp() -> float:
@@ -73,17 +86,19 @@ async def _call(spec: dict, tool_name: str, args: dict):
 
 
 def _make_tool(server_name: str, spec: dict, raw) -> Tool:
+    name = f"mcp__{_sanitize(server_name)}__{raw.name}"  # 两台服务器同名工具不互相覆盖
+
     def run(args: dict) -> str:
         try:
             result = asyncio.run(_call(spec, raw.name, args))
         except Exception as e:
-            return f"MCP tool '{raw.name}' 失败: {e}"
+            return f"MCP tool '{name}' 失败: {e}"
         parts = [b.text if getattr(b, "type", None) == "text" else str(b) for b in result.content]
         text = "\n".join(parts)
-        return f"MCP tool '{raw.name}' error: {text}" if result.is_error else text
+        return f"MCP tool '{name}' error: {text}" if result.is_error else text
 
     return Tool(
-        name=raw.name,
+        name=name,
         description=f"[mcp:{server_name}] {raw.description or ''}",
         input_schema=raw.input_schema or {"type": "object", "properties": {}},
         run=run,
@@ -92,6 +107,7 @@ def _make_tool(server_name: str, spec: dict, raw) -> Tool:
 
 def load_mcp_tools() -> list[Tool]:
     """拉取全部 MCP 工具; 没配置文件或为空返回 []。"""
+    _failed.clear()  # 名单语义 = 最近一次 probe 的失败者(每轮重填)
     if not MCP_CONFIG.exists():
         return []
     servers = json.loads(MCP_CONFIG.read_text(encoding="utf-8")).get("mcpServers", {})
@@ -106,13 +122,21 @@ def load_mcp_tools() -> list[Tool]:
 
     async def _collect():
         tools = []
+        names: set[str] = set()
         for name, spec in servers.items():
             try:
                 raws = await asyncio.wait_for(_probe(name, spec), PROBE_TIMEOUT)
+                _failed.discard(name)
                 for t in raws:
                     # 闭包捕获 spec/name 的浅拷贝, 防 async 域结束后变量复用
-                    tools.append(_make_tool(name, dict(spec), t))
+                    tool = _make_tool(name, dict(spec), t)
+                    if tool.name in names:
+                        print(f"(MCP 工具重名, 跳过: {tool.name})")
+                        continue
+                    names.add(tool.name)
+                    tools.append(tool)
             except Exception as e:  # 单台失败不拖垮其余
+                _failed.add(name)
                 errs = getattr(e, "exceptions", None) or [e]
                 print(f"(MCP 服务器 {name} 加载失败, 跳过: {'; '.join(repr(x) for x in errs)})")
         return tools
