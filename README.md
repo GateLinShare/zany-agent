@@ -2,6 +2,13 @@
 
 无框架手写的 mini coding agent：Anthropic 原生消息单协议贯穿（模型输入 = 会话落盘 = 回放格式），单循环、单工具形态，零编排框架。架构全量文档见 [docs/architecture.md](docs/architecture.md)。
 
+## 项目特点：双层记忆不遗忘
+
+- **项目记忆 `AGENTS.md`**——架构/约定/规范随仓库走，每轮开工自动全文载入
+- **个人记忆 `~/.zany/USER.md`**（路径可用 `ZANY_USER_MEMORY` 改）——协作偏好、被纠正过的决策，逐条带日期累积，同样每轮自动载入
+
+新会话、恢复旧会话、隔多天继续，agent 都带着完整上下文开工；改记忆文件即时生效，无需重启。
+
 ## master 分支：极简内核
 
 内置工具只有 5 个：`ls`、`read_file`、`write_file`、`edit_file`、`execute`。其余能力一律外置，不进内核：
