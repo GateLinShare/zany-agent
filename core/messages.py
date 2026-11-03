@@ -14,6 +14,9 @@ from pathlib import Path
 
 _IMG_REF = re.compile(r"\[图片:\s*(.+?)\s*\]")
 
+_MEDIA = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+          ".gif": "image/gif", ".webp": "image/webp"}
+
 
 def user(text: str) -> dict:
     return {"role": "user", "content": user_content(text)}
@@ -32,7 +35,8 @@ def user_content(text: str) -> str | list:
         try:
             data = Path(path).read_bytes()
             blocks.append({"type": "image", "source": {
-                "type": "base64", "media_type": "image/png",
+                # ponytail: 按扩展名定 media_type(飞书 jpg 照片标 png 会被 API 拒)
+                "type": "base64", "media_type": _MEDIA.get(Path(path).suffix.lower(), "image/png"),
                 "data": base64.b64encode(data).decode()}})
         except OSError:
             blocks.append({"type": "text", "text": f"(图片读取失败: {path})"})
