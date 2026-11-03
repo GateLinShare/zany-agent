@@ -100,6 +100,53 @@ TOOL_VERB = {
 
 CMD_CLIP = 60  # 命令/prompt 单行显示宽度上限(用户定 60, 前后缀另占~24列): 超出尾部 …
 
+# ---- 键位表(Claude Code 同构): 键 -> app action 的间接层 ----
+# action 名对齐 Claude(app.interrupt/app.exit, textual 的 namespace 语法是点号,
+# 用户从 Claude 抄的冒号写法 load 时自动转); 用户可用 ~/.zany/keybindings.json
+# 覆盖(形状兼容 Claude 的文件, 可直接拷), 值 null/"" = unbind。只此一层 context,
+# 全局生效; 未知 action / 坏 JSON 记 issue 不炸启动。
+DEFAULT_KEYBINDINGS = {"ctrl+c": "app.interrupt", "ctrl+d": "app.exit"}
+KNOWN_ACTIONS = ("app.interrupt", "app.exit")
+EXIT_WINDOW = 2.0  # 双击退出计时窗(秒): 超时重置 pending, 防误触连击直接退
+_ACTION_ALIASES = {"app:interrupt": "app.interrupt", "app:exit": "app.exit"}
+
+
+def load_keybindings(path: Path | None = None) -> tuple[dict[str, str], list[str]]:
+    """读 ~/.zany/keybindings.json 覆盖默认键位, 返回 (键->action, 问题列表)。
+
+    兼容两种形状: Claude 的 [{"context":"Global","bindings":{...}}] 与直接的
+    {"ctrl+c":"app:interrupt"}。context 字段忽略(zany 只有全局一层)。"""
+    table = dict(DEFAULT_KEYBINDINGS)
+    p = path or Path.home() / ".zany" / "keybindings.json"
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return table, []
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as e:
+        return table, [f"读取失败, 沿用默认键位: {e}"]
+    entries = raw if isinstance(raw, list) else [raw] if isinstance(raw, dict) else None
+    if entries is None:
+        return table, [f"格式不对(应为数组或对象), 沿用默认键位: {raw!r:.80}"]
+    issues: list[str] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            issues.append(f"跳过非对象条目: {entry!r:.80}")
+            continue
+        # Claude 形状取 bindings 子对象; 直接对象形状(无 bindings 键)视自身为键位表
+        body = entry.get("bindings") if isinstance(entry.get("bindings"), dict) else entry
+        for key, action in body.items():
+            if key == "context":  # 只此全局一层, context 字段忽略
+                continue
+            k = str(key).lower()
+            action = _ACTION_ALIASES.get(action, action)  # 冒号写法 → textual 点号
+            if action in (None, ""):
+                table.pop(k, None)  # unbind: 显式删除该键
+            elif action in KNOWN_ACTIONS:
+                table[k] = action
+            else:
+                issues.append(f"未知 action {action!r} (键 {key}), 已跳过")
+    return table, issues
+
 
 def _clip(s: str, n: int = CMD_CLIP) -> str:
     """按显示宽截断(中文算 2 列, rich.cells 口径), 尾部加 …。"""
@@ -334,8 +381,15 @@ class ChatLog(RichLog):
 
 class ChatApp(App):
     TITLE = "zany"
-    # ctrl+c 语义学 hermes: 运行中第一次=打断当前轮, 第二次(或空闲时)=退出
-    BINDINGS = [("ctrl+c", "quit", "打断 / 退出")]
+    # ctrl+c 语义学 hermes/Claude: 双击退出 —— busy 首击=打断, 空闲首击只置
+    # pending 提示; EXIT_WINDOW 秒内二击才真退。priority=True 必须保留:
+    # TextArea(ChatPrompt) 内置 ctrl+c=copy/ctrl+d=delete 会吃键, 不加 priority
+    # 永远冒泡不到 App。键位可被 ~/.zany/keybindings.json 改写(main() 里 patch),
+    # 这里是默认值。
+    BINDINGS = [
+        Binding("ctrl+c", "app.interrupt", "打断 / 退出", show=False, priority=True),
+        Binding("ctrl+d", "app.exit", "退出", show=False, priority=True),
+    ]
 
     CSS = """
     #chatlog { height: 1fr; border: none; padding: 0 1; }
@@ -344,7 +398,7 @@ class ChatApp(App):
     #prompt  { border: round $accent; height: 3; }
     """
 
-    def __init__(self, resume_id: str | None = None):
+    def __init__(self, resume_id: str | None = None, keybinding_issues: list[str] | None = None):
         super().__init__()
         self.workdir = os.getcwd()
         self.agent = build_agent(self.workdir, with_mcp=False)  # MCP 后台补, 界面秒起
@@ -353,8 +407,11 @@ class ChatApp(App):
         self.mcp_stamp = config_stamp()
         self.sess_path = None
         self.resume_id = resume_id  # -r <id> / -r(最近一个) / None(新会话)
+        self._keybinding_issues = keybinding_issues or []
         self.busy = False
-        self._interrupt_pending = False  # 已发打断, 下次 ctrl+c 强制退出
+        self._interrupt_pending = False  # 已发打断, 轮结束后重置
+        self._exit_pending = 0.0  # 双击退出的首击时刻(monotonic), 0=无 pending
+        self._exit_timer = None
         self._queued_text: str | None = None  # busy 时用户输入 → 打断后排下一轮(hermes steer)
         self.wakeup: "queue.Queue[str]" = queue.Queue()  # cron 唤醒队列
 
@@ -370,6 +427,10 @@ class ChatApp(App):
         log = self.query_one("#chatlog", RichLog)
         log.write(f"[bold]zany[/] (tools: {', '.join(self.agent.tools)})")
         log.write(f"[dim]工作目录: {self.workdir}[/dim]\n")  # 快捷键提示在输入框下常驻行, 不占横幅
+        if self._keybinding_issues:
+            self.log_write(f"[yellow][keybindings] {len(self._keybinding_issues)} 处问题(已用默认键位补齐):[/yellow]")
+            for issue in self._keybinding_issues:
+                self.log_write(f"[dim]  - {issue}[/dim]")
         if self.resume_id is not None:  # uv run tui.py -r [id] 启动即恢复
             if self.resume_id:
                 path = project_dir(self.workdir) / f"{self.resume_id}.json"
@@ -510,13 +571,32 @@ class ChatApp(App):
         self.chat_line("user", f"/goal {arg}")
         self.run_turn(continuation_prompt(self.state["goal"]))
 
-    def action_quit(self) -> None:
-        """两段式退出(hermes): 运行中第一次 ctrl+c 打断, 第二次/空闲退出。"""
+    def action_interrupt(self) -> None:
+        """ctrl+c 状态机(Claude 同款 pending+计时): 窗口内二击退出;
+        否则 busy 首击打断(必发一条即时提示), 空闲首击只置 pending。"""
+        now = time.monotonic()
+        if self._exit_pending and now - self._exit_pending <= EXIT_WINDOW:
+            self.exit()
+            return
+        self._exit_pending = now
+        if self._exit_timer is not None:
+            self._exit_timer.stop()
+        self._exit_timer = self.set_timer(EXIT_WINDOW, self._clear_exit_pending)
         if self.busy and not self._interrupt_pending:
             self._interrupt_pending = True
             self.agent.interrupt("用户按了 ctrl+c")
-            self.log_write("[dim]⚡ 打断请求已发出(正在跑的工具会跑完当前这个)…再按一次 ctrl+c 强制退出[/dim]")
-            return
+            self.log_write("[dim]⚡ 打断请求已发出(正在跑的工具会跑完当前这个)…再按一次 ctrl+c 退出, 或按 ctrl+d[/dim]")
+        else:
+            self.log_write("[dim](press ctrl+c again to exit, or ctrl+d)[/dim]")
+        self.update_ctx(getattr(self, "_last_tin", 0))
+
+    def _clear_exit_pending(self) -> None:
+        self._exit_pending = 0.0
+        self._exit_timer = None
+        self.update_ctx(getattr(self, "_last_tin", 0))  # 提示行恢复忙/闲常态
+
+    def action_exit(self) -> None:
+        """ctrl+d: 直接退出(Claude 的 EOF 语义), 不走双击确认。"""
         self.exit()
 
     @work(thread=True, exclusive=True)
@@ -658,8 +738,12 @@ class ChatApp(App):
         """输入框下方常驻一行(Claude Code 的 auto-mode 行同款):
         状态提示 + ctx 占用; set_busy 也走这里, 提示随忙/闲切换。"""
         self._last_tin = tin
-        state = ("[yellow]» 运行中 · ctrl+c 打断[/yellow]" if self.busy
-                 else "[dim]» /new 新对话 · /resume 恢复 · /goal 持续目标 · ctrl+z 回退输入 · exit 退出[/dim]")
+        if self._exit_pending and time.monotonic() - self._exit_pending <= EXIT_WINDOW:
+            state = "[yellow]» 再按一次 ctrl+c 退出, 或按 ctrl+d[/yellow]"
+        elif self.busy:
+            state = "[yellow]» 运行中 · ctrl+c 打断[/yellow]"
+        else:
+            state = "[dim]» /new 新对话 · /resume 恢复 · /goal 持续目标 · ctrl+z 回退输入 · exit 退出[/dim]"
         self.query_one("#ctx", Static).update(f"{state} [dim]· {ctx_bar(tin)}[/dim]")
 
     # 贴图走文件路径: [图片: 路径] 占位符(core/messages.user_content 转成 image 块)。
@@ -889,7 +973,16 @@ def main() -> None:
     resume_id = None
     if argv and argv[0] in ("--resume", "-r"):
         resume_id = argv[1] if len(argv) > 1 else ""  # 不带 id = 最近活跃会话
-    app = ChatApp(resume_id)
+    # 键位表: 用户配置 patch 到 ChatApp 类属性上(textual 只认类属性, 实例无效),
+    # _merged_bindings 是 __init_subclass__ 时的缓存, patch 后必须重建。
+    table, kb_issues = load_keybindings()
+    ChatApp.BINDINGS = [
+        # priority=True: 输入框(TextArea)内置 ctrl+c=copy 会吃键, 不加到不了 App
+        Binding(k, action, show=False, priority=True)
+        for k, action in sorted(table.items())
+    ]
+    ChatApp._merged_bindings = ChatApp._merge_bindings()
+    app = ChatApp(resume_id, keybinding_issues=kb_issues)
     try:
         app.run()
     except KeyboardInterrupt:  # Textual 没接住的 ^C(启动中/空闲期), 直接退
