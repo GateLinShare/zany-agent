@@ -49,6 +49,21 @@ def _with_env(**kv):
 
 
 def main():
+    # 0. 插件文件的仓库根锚定: restart/browser 都用 __file__ 上溯定位仓库根, 搬目录层级会算错
+    #    (教训: root 算成 core/ 后 execv 指向 core/tui.py, execv 失败直接死进程)
+    from core.plugins.restart import make_restart_tool
+    repo_root = Path(__file__).resolve().parent.parent
+    old_argv = sys.argv
+    try:
+        sys.argv = [str(repo_root / "tui.py")]
+        av = make_restart_tool().run({}) and None
+        import core.plugins.restart as _r
+        av = _r.pending_restart()
+        assert av and Path(av[1]) == repo_root / "tui.py", (av, repo_root)
+        _r._pending_restart = None
+    finally:
+        sys.argv = old_argv
+
     # 1. 空开关 → 纯基座, 不加载任何东西
     restore = _with_env(ZANY_PLUGINS="")
     try:

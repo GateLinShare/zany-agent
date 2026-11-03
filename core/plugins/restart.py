@@ -21,7 +21,8 @@ def pending_restart() -> list[str] | None:
 
 
 def make_restart_tool() -> Tool:
-    root = Path(__file__).resolve().parent.parent
+    # 插件文件在 core/plugins/ 下, 上溯两级才是仓库根(搬进插件缝时 parent.parent 会算成 core/)
+    root = Path(__file__).resolve().parents[2]
     entry = Path(sys.argv[0]).resolve()  # 进程入口: tui.py 或 gateway/main.py
 
     def run(args: dict) -> str:
