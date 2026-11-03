@@ -33,6 +33,7 @@ from core.loop import Agent, user_memory_path
 from core.mcp import load_mcp_tools
 from core.messages import text_of  # noqa: F401  (tui/eval 从这取)
 from core.model import ChatModel, make_client
+from core.plugins import load_plugins
 from core.skills import skill_section
 from core.subagent import make_task_tool
 from core.tools import builtin_tools
@@ -78,6 +79,7 @@ def build_agent(workdir: str, with_mcp: bool = True):
     model = ChatModel(make_client(), os.environ["ANTHROPIC_MODEL"])
     max_turns = int(os.environ.get("MAX_TURNS", "40"))  # 单轮工具轮数上限, 防打转烧钱
     tools = builtin_tools(workdir)
+    tools += load_plugins(workdir)  # .env 的 ZANY_PLUGINS 选装能力插件(core/plugins/<name>.py)
     if with_mcp:
         tools += load_mcp_tools()  # 阻塞(每台最多 PROBE_TIMEOUT); TUI 传 False 后台补
     tools.append(make_task_tool(model, STYLE_PROMPT, workdir, []))  # ponytail: 子代理不载 MCP, 够用再说
