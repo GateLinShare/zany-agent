@@ -16,6 +16,11 @@ from .summarize import maybe_summarize
 MAX_TURNS = 40  # 单次 run 的工具轮数上限, 防模型打转烧钱
 
 
+class AbortError(Exception):
+    """用户取消(区别于真异常): 工具/子代理内部检测到 interrupt 并主动上抛时用。
+    loop 识别后 tool_result 记为取消而非错误, UI 侧 ("interrupted", reason) 同语义。"""
+
+
 def user_memory_path() -> Path:
     """个人记忆文件: ZANY_USER_MEMORY 优先(服务器多人共用时各自 export 指向自己的), 默认 ~/.zany/USER.md。"""
     return Path(os.environ.get("ZANY_USER_MEMORY") or Path.home() / ".zany" / "USER.md")
@@ -231,6 +236,8 @@ class Agent:
                 else:
                     try:
                         out = tool.run(args)
+                    except AbortError:  # 用户取消 ≠ 工具故障, 文案对齐打断收尾
+                        out = f"错误: 用户取消, 本次执行未完成"
                     except Exception as e:  # 工具崩了也回文本, 让模型重试
                         out = f"错误: {e}"
                 results.append({"type": "tool_result", "tool_use_id": call["id"], "content": out})
