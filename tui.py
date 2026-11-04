@@ -230,12 +230,11 @@ def _turn_renderable(think: str, body: str, fold: bool = False, md: bool = True)
 
 
 class ChatPrompt(TextArea):
-    """多行输入框。回车提交; shift+enter/alt+enter/ctrl+j 换行。
+    """多行输入框。回车提交; shift+enter/alt+enter/ctrl+j 换行。只捕捉文本。
 
-    无 bracketed paste 的终端把多行粘贴回放成一串按键, 换行以 enter 键到达。
-    参考 dcode PasteBurstTextArea 的最小子集: 字符连击(间隔≤0.03s)之后紧贴
-    字符流的 enter 当作粘贴的换行插入, 不触发提交; 0.12s 窗只管后续连续 enter。
-    """
+    高度随内容即时重算(hermes 同款, 无去抖); 行数没变的击键不动布局。
+    ponytail: 不做粘贴连击检测——无 bracketed paste 的终端里多行粘贴会被
+    逐行提交, 现代终端(xterm.js/iTerm2/Windows Terminal)都带 bracketed paste, 不亏。"""
 
     class Submitted(Message):
         """回车提交, text 为完整输入(可含换行)。"""
@@ -248,20 +247,10 @@ class ChatPrompt(TextArea):
         Binding("shift+enter,alt+enter,ctrl+enter,ctrl+j", "newline", "换行", show=False),
     ]
 
-    # ponytail: 只搬连击检测, dcode 的折叠占位符/路径识别/便签粘贴没要
-    _BURST_GAP = 0.03  # 字符间隔 ≤ 此值算连击
-
-    _ENTER_WINDOW = 0.12  # 首个 enter 被抑制后, 此窗内的后续 enter 仍是粘贴换行
-    _BURST_MIN = 3  # 连击至少这么多字符才武装
-    _GROW_DELAY = 0.15  # 高度变化去抖: 拉长的重排别砸进下一次输入法组词
-
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.cursor_blink = False  # Claude 同款: 光标常亮不闪
-        self._last_char_ts = 0.0
-        self._enter_ts = 0.0  # 上一个被抑制(当粘贴换行)的 enter 时刻
-        self._run = 0
-        self._grow_timer = None
+        self._h = 3  # 当前高度(行), 与 CSS 初始值一致; 行数不变就不碰 styles
 
     def _batch_recover(self) -> None:
         """undo/redo 批量崩溃后的钳位兜底。"""
@@ -287,54 +276,22 @@ class ChatPrompt(TextArea):
         if event.key == "enter":
             event.prevent_default()
             event.stop()
-            now = time.monotonic()
-            # dcode 同款两段判定: 首 enter 必须紧贴字符流(≤字符间隔)才算粘贴
-            # 换行; 已抑制过一次后, 0.12s 窗内的连续 enter 仍算换行(粘贴空行)。
-            # 之前首 enter 也放 0.12s → 连击后快速回车被误当换行, 输入框
-            # 越按越长, 拉长重排又打断输入法(见 on_text_area_changed)。
-            if self._run >= self._BURST_MIN and (
-                now - self._last_char_ts <= self._BURST_GAP
-                or now - self._enter_ts <= self._ENTER_WINDOW
-            ):
-                self.insert("\n")  # 粘贴回放的换行, 不提交
-                self._last_char_ts = now
-                self._enter_ts = now
-                return
             text = self.text.strip()
             if text:
                 self.post_message(self.Submitted(text))
             self.clear()
-            self._run = 0
-            self._enter_ts = 0.0
             return
         await super()._on_key(event)
-        if event.is_printable:
-            now = time.monotonic()
-            if now - self._last_char_ts <= self._BURST_GAP:
-                self._run += 1
-            else:
-                self._run = 1
-                self._enter_ts = 0.0  # 连击断开: 旧的抑制 enter 不再吞下一次提交
-            self._last_char_ts = now
 
     def action_newline(self) -> None:
         self.insert("\n")
 
-    # 高度跟随内容: 行数 + 边框, 3~36 行封顶
+    # 高度随内容即时重算(hermes 同款), 行数+边框, 3~36 行封顶
     def on_text_area_changed(self, event) -> None:
-        # ponytail: 高度去抖 0.15s —— 拉长触发的整屏重排若落在输入法组词中,
-        # 终端(xterm.js 系)会打断组词把拼音原样提交, 表现为"输入变首字母";
-        # 挪到打字停顿窗口再拉长。上游修好组词/重排竞争后可删。
-        if self._grow_timer is not None:
-            self._grow_timer.stop()
-        self._grow_timer = self.set_timer(self._GROW_DELAY, self._sync_height)
-
-    def _sync_height(self) -> None:
-        self._grow_timer = None
-        if not self.is_mounted:
-            return
-        n = self.document.line_count + 2
-        self.styles.height = max(3, min(36, n))
+        n = max(3, min(36, self.document.line_count + 2))
+        if n != self._h:  # 行数没变的击键不触发重排(输入法组词期内也安全)
+            self._h = n
+            self.styles.height = n
 
 
 class ResumeScreen(ModalScreen):
