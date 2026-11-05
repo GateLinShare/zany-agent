@@ -548,7 +548,7 @@ class ChatApp(App):
         if self.busy and not self._interrupt_pending:
             self._interrupt_pending = True
             self.agent.interrupt("用户按了 ctrl+c")
-            self.log_write("[dim]⚡ 打断请求已发出(正在跑的工具会跑完当前这个)…再按一次 ctrl+c 退出, 或按 ctrl+d[/dim]")
+            self.log_write("[dim]⚡ 打断请求已发出(在途调用立即废弃, execute 连进程一起杀)…再按一次 ctrl+c 退出, 或按 ctrl+d[/dim]")
         else:
             self.log_write("[dim](press ctrl+c again to exit, or ctrl+d)[/dim]")
         self.update_ctx(getattr(self, "_last_tin", 0))

@@ -8,9 +8,13 @@ from .messages import text_of
 from .tools import Tool, builtin_tools
 
 
-def make_task_tool(model, system_base: str, workdir: str, mcp_tools: list) -> Tool:
+def make_task_tool(model, system_base: str, workdir: str, mcp_tools: list,
+                   shared_interrupt: dict | None = None) -> Tool:
     def run(args: dict) -> str:
-        inner = Agent(model, system_base, builtin_tools(workdir) + list(mcp_tools), workdir)
+        # 子代理与主代理共享打断标志: 主对话 interrupt 时子代理的检查点 a/b/c 同步生效,
+        # 不会在 worker 线程里继续把子任务跑完烧 token。
+        inner = Agent(model, system_base, builtin_tools(workdir) + list(mcp_tools), workdir,
+                      shared_interrupt=shared_interrupt, owns_interrupt=False)
         msgs = [{"role": "user", "content": args["prompt"]}]
         try:
             inner.invoke(msgs)

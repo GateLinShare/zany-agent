@@ -54,11 +54,17 @@ class ChatModel:
                 self._current = None
 
     def complete(self, system: str, prompt: str, max_tokens: int = 4096) -> str:
-        """非流式单轮, 给摘要/判分等后台活用。"""
-        r = self.client.messages.create(
-            model=self.model,
-            max_tokens=max_tokens,
-            system=system,
+        """单轮非流式语义, 实现走流式(注册进 _current)—— 压缩摘要等后台活也能被打断 abort。
+        与 stream() 共用 _current 槽位; 调用方串行(都在 agent worker 线程), 不冲突。"""
+        parts = []
+        with self.client.messages.stream(
+            model=self.model, max_tokens=max_tokens, system=system,
             messages=[{"role": "user", "content": prompt}],
-        )
-        return "".join(b.text for b in r.content if getattr(b, "type", "") == "text")
+        ) as s:
+            self._current = s
+            try:
+                for chunk in s.text_stream:
+                    parts.append(chunk)
+            finally:
+                self._current = None
+        return "".join(parts)
