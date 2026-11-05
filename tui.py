@@ -177,7 +177,8 @@ def tool_line(name: str, args: dict, dur: float, output: str) -> str:
     err = output.startswith("错误:")
     detail = f"[red]{escape(detail)}[/red]" if err else escape(detail)
     fail = "[red]✗ 失败[/red]" if err else ""
-    return f"[dim]┊[/] {emoji} {verb:<9} {detail}  [dim]{dur:.1f}s[/dim]{fail}"
+    durs = f"  [dim]{dur:.1f}s[/dim]" if dur else ""  # 回放无耗时数据, 传 0 不显
+    return f"[dim]┊[/] {emoji} {verb:<9} {detail}{durs}{fail}"
 
 
 def _fold_thinking(think: str) -> str:
@@ -804,18 +805,32 @@ class ChatApp(App):
         # 回放历史: 按"回合"分组(真用户消息开组; tool_result 也穿 user 皮, 要排除),
         # 组内 assistant 的 thinking/正文合并成一块渲染, 再按锚找 marks 补摘要行
         marks_by_at = {m["at"]: m for m in self.state["marks"]}
-        groups: list[dict] = []  # [{user, th, text, at}]  at=组末消息序号(锚)
+        groups: list[dict] = []  # [{user, th, text, tools, at}]  at=组末消息序号(锚)
         msgs = self.state["messages"]
+        tool_uses_by_id: dict = {}  # tool_use_id -> (name, input), 回放工具行用
         for idx, m in enumerate(msgs):
+            if m["role"] == "assistant" and isinstance(m.get("content"), list):
+                for b in m["content"]:
+                    if isinstance(b, dict) and b.get("type") == "tool_use":
+                        tool_uses_by_id[b["id"]] = (b.get("name", "?"), b.get("input", {}))
             is_tool_result = isinstance(m.get("content"), list) and any(
                 isinstance(b, dict) and b.get("type") == "tool_result"
                 for b in m["content"]
             )
             if m["role"] == "user" and not is_tool_result:
-                groups.append({"user": text_of(m).strip(), "th": "", "text": "", "at": idx + 1})
+                groups.append({"user": text_of(m).strip(), "th": "", "text": "", "tools": [], "at": idx + 1})
+            elif m["role"] == "user" and is_tool_result:
+                # 工具结果也回放(被打断轮的工作全在这里, 不回放就像丢了)
+                if not groups:
+                    groups.append({"user": None, "th": "", "text": "", "tools": [], "at": 0})
+                for b in m["content"]:
+                    if isinstance(b, dict) and b.get("type") == "tool_result":
+                        name, args = tool_uses_by_id.get(b.get("tool_use_id"), ("?", {}))
+                        out = b.get("content", "")
+                        groups[-1]["tools"].append((name, args, str(out)))
             elif m["role"] == "assistant":
                 if not groups:
-                    groups.append({"user": None, "th": "", "text": "", "at": 0})
+                    groups.append({"user": None, "th": "", "text": "", "tools": [], "at": 0})
                 g = groups[-1]
                 if isinstance(m.get("content"), list):
                     g["th"] += "".join(
@@ -830,7 +845,10 @@ class ChatApp(App):
                 self.chat_line("user", g["user"])
             if g["th"] or g["text"].strip():
                 self.log_render(_turn_renderable(g["th"], g["text"].strip(), fold=True))
-            mk = marks_by_at.get(g["at"])  # 锚对不上(compaction 后)就静默跳过
+            for name, args, out in g.get("tools", []):
+                self.log_write(tool_line(name, args, 0.0, out))
+            mk = marks_by_at.get(g["at"]) or marks_by_at.get(g["at"] + 1)
+            # +1 兑底: 打断轮收尾多补一条 tool_result user, marks.at 比组锚大 1
             if mk:
                 parts = []
                 if mk.get("thought"):
