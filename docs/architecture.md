@@ -108,12 +108,16 @@ def _run(self, messages):                    # stream() 包装:清残留打断�
 ### 3.4 打断(hermes interrupt 语义)
 
 `interrupt(reason)` 置标志 + 立即 `abort()` 在途模型流(不等下一个 SSE 事件);
-loop 在两处检查点协作式停下:每轮开始、流式循环的 SSE 事件间隙。收尾规则:
+loop 在三处检查点协作式停下:每轮开始、流式循环的 SSE 事件间隙、工具派发间隙(0.1s 轮询)。
+收尾规则:
 
 - 丢弃未完成的 thinking 块(没拿到 signature,原样回传会被 API 拒);
 - 保留 text / tool_use,有 tool_use 就补 `cancelled` tool_result 保配对 ——
   消息序列始终合法可回放,partial 内容照常落盘、token 照常记账;
-- 正在执行的工具跑完当前这一个即停(不杀线程)。
+- 在途工具立即废弃不等结果:工具跑在 agent 专职 worker 线程(_dispatch 0.1s
+  轮询),打断即丢弃结果;有 kill 钩子就强杀(execute 终止整个进程组);
+  同批剩余工具请求不再执行。worker 会把废弃调用跑完自己丢弃
+  (mcp 60s / execute 已被杀,上限有界)。
 
 Ctrl+C 两段式:第一次置打断标志协作收尾,第二次恢复 SIG_DFL 硬退。
 

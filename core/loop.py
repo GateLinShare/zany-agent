@@ -6,8 +6,11 @@
 - 工具错误也返回文本不抛异常 —— 让模型自己看到错误并重试, 这是 agent 的自愈机制。
 """
 
+import contextlib
 import json
 import os
+import queue
+import threading
 from pathlib import Path
 
 from .messages import text_of, tool_uses
@@ -37,9 +40,14 @@ class Agent:
         # 随 save_session 落盘、resume 时恢复。子代理消耗不计入。
         self.usage = {"input": 0, "output": 0, "calls": 0}
         # 打断标志(hermes agent.interrupt): UI 线程置位, loop 在事件间隙协作式停下。
-        # CPython 下 str 赋值原子, 无需锁; 工具在线程内同步跑, 无 hermes 的 tid fan-out。
+        # CPython 下 str 赋值原子, 无需锁; 工具跑在专职 worker 线程(见 _dispatch)。
         self._interrupt_requested: str | None = None
         self.was_interrupted = False  # 上一轮是否被打断(结果属性, 供 UI/headless 读)
+        # 工具专职 worker 线程: 所有 tool.run 串行在这一个线程跑 —— 线程身份恒定,
+        # playwright sync 这类线程绑定对象不跨线程; 打断时 loop 立即废弃在途调用
+        # (结果不再取), worker 把旧调用跑完后自己丢弃, 继续取下一个。
+        self._tool_q: queue.Queue = queue.Queue()
+        threading.Thread(target=self._tool_loop, daemon=True, name="zany-tools").start()
         # 压缩防抖/熔断状态(hermes context_compressor 的三层保护, 简化版)
         self._last_prompt_tokens: int | None = None  # 上次响应真实 prompt tokens
         self._ineffective = 0        # 连续无效压缩计数(压缩后降幅 <10%)
@@ -56,8 +64,8 @@ class Agent:
 
     def interrupt(self, reason: str = "用户打断") -> None:
         """请求打断当前轮。置标志 + 立即 abort 在途模型流(hermes 及时性:
-        不等下一个 SSE 事件); 正在执行的工具跑完当前这一个即停(不杀线程,
-        等同 hermes 的"当前工具批次完成后停止")。"""
+        不等下一个 SSE 事件); 在途工具立即废弃不等结果(execute 由 kill 钩子
+        终止整个进程组), 批内剩余工具请求不再执行。"""
         self._interrupt_requested = reason
         abort = getattr(self.model, "abort", None)
         if abort:
@@ -105,6 +113,7 @@ class Agent:
         for _ in range(self.max_turns):
             if self._interrupt_requested:  # 检查点 a: 每轮开始(hermes tool loop 顶)
                 yield ("interrupted", self._interrupt_requested)
+                self.was_interrupted = True
                 return
             for ev in self._compact_step(messages):  # 调用前兜底: 首轮 est 粗估, 之后用上轮真实值
                 yield ev
@@ -230,25 +239,49 @@ class Agent:
             for call in calls:
                 name, args = call["name"], call.get("input", {})
                 yield ("tool_start", call["id"], name)
-                tool = self.tools.get(name)
-                if tool is None:
-                    out = f"错误: 未知工具 {name}"
+                if self._interrupt_requested:  # 检查点 c: 打断后批内剩余请求直接废弃
+                    out = f"错误: {self._interrupt_requested}, 本次执行未完成"
                 else:
-                    try:
-                        out = tool.run(args)
-                    except AbortError:  # 用户取消 ≠ 工具故障, 文案对齐打断收尾
-                        out = f"错误: 用户取消, 本次执行未完成"
-                    except Exception as e:  # 工具崩了也回文本, 让模型重试
-                        out = f"错误: {e}"
+                    tool = self.tools.get(name)
+                    out = f"错误: 未知工具 {name}" if tool is None else self._dispatch(tool, args)
                 results.append({"type": "tool_result", "tool_use_id": call["id"], "content": out})
                 yield ("tool_result", call["id"], name, json.dumps(args, ensure_ascii=False), out)
             messages.append({"role": "user", "content": results})
             # postflight(hermes): 对话完校验, 超阈值就地压缩, 下一轮带上瘦身后的历史
-            for ev in self._compact_step(messages):
-                yield ev
+            if not self._interrupt_requested:  # 已请求打断: 直接收尾, 不再花一次摘要调用
+                for ev in self._compact_step(messages):
+                    yield ev
         note = f"已达最大轮数 {self.max_turns}, 本轮暂时中止; 继续对话可让模型接着干"
         messages.append({"role": "assistant", "content": [{"type": "text", "text": note}]})
         yield ("turn_limit", self.max_turns)
+
+    def _tool_loop(self) -> None:
+        """工具 worker 主循环: 串行执行派来的 (tool, args), 结果放 box。"""
+        while True:
+            tool, args, box = self._tool_q.get()
+            try:
+                box["out"] = tool.run(args)
+            except AbortError:  # 用户取消 ≠ 工具故障, 文案对齐打断收尾
+                box["out"] = "错误: 用户取消, 本次执行未完成"
+            except Exception as e:  # 工具崩了也回文本, 让模型重试
+                box["out"] = f"错误: {e}"
+            finally:
+                box["done"].set()
+
+    def _dispatch(self, tool, args: dict) -> str:
+        """派发单个工具到 worker 线程, 0.1s 轮询打断标志 —— 打断立即废弃在途调用。
+        废弃 = 结果不再取; 有 kill 钩子就强杀(execute 终止整个进程组)。
+        worker 仍会把旧调用跑完自己丢弃; 下一轮第一个工具最坏等旧调用自然结束
+        (mcp 单调用 60s 上限 / execute 已被钩子杀死; ponytail: 不做线程强杀)。"""
+        box: dict = {"done": threading.Event()}
+        self._tool_q.put((tool, args, box))
+        while not box["done"].wait(0.1):
+            if self._interrupt_requested:
+                if tool.kill:
+                    with contextlib.suppress(Exception):
+                        tool.kill()
+                return f"错误: {self._interrupt_requested}, 本次执行未完成"
+        return box["out"]
 
     def _account(self, turn_in: int, turn_out: int) -> tuple | None:
         """真实 usage 记账(hermes update_from_response), 打断路径也走这里。
