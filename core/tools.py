@@ -37,6 +37,7 @@ class Tool:
     input_schema: dict
     run: Callable[[dict], str]  # 入参 dict -> 结果文本(错误也返回文本, 不抛异常)
     ledger: Any | None = None   # 行为熔断账本(仅内置工具); loop 在压缩后调 reset()
+    kill: Callable[[], None] | None = None  # 打断废弃时的强杀钩子(execute: 杀进程组)
 
     def schema(self) -> dict:
         return {"name": self.name, "description": self.description, "input_schema": self.input_schema}
@@ -285,33 +286,55 @@ def _edit(workdir, args, ledger) -> str:
     return f"已替换 {len(spans)} 处 ({args['path']})" + ("(模糊匹配)" if fuzzy else "")
 
 
-def _execute(workdir, args, ledger) -> str:
-    command, t = args["command"], int(args.get("timeout", EXEC_TIMEOUT))
-    # start_new_session(POSIX): 子进程自成进程组, 超时可整组击杀(pi bash.ts 语义)
-    p = subprocess.Popen(
-        command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True, errors="replace", cwd=workdir, start_new_session=True,
-    )
-    try:
-        out, err = p.communicate(timeout=t)
-    except subprocess.TimeoutExpired:
-        with contextlib.suppress(ProcessLookupError, PermissionError):
-            os.killpg(os.getpgid(p.pid), signal.SIGKILL)  # 杀整组, 防 shell 的孙子进程残留孤儿
-        out, err = p.communicate()  # 收尸, 保住超时前已产出的输出
-        partial = _truncate(((out or "") + (("\n[stderr] " + err) if err else "")).strip())
-        return f"错误: 命令超时(>{t}s), 已 kill 整个进程组。\n[超时前的输出]\n{partial}" if partial else \
-            f"错误: 命令超时(>{t}s), 已 kill 整个进程组(无输出)"
-    text = (out or "") + (("\n[stderr] " + err) if err else "")
-    text = (text.strip() or "(无输出)") + (f"\n[exit {p.returncode}]" if p.returncode else "")
-    n = ledger.see_exec(command)
-    if n >= 3:
-        text += f"\n[提示: 同一命令已连续执行 {n} 次, 结果大概率不变; 若在等外部变化, 换个验证方式]"
-    if len(text) > MAX_OUTPUT:
-        tmp = tempfile.NamedTemporaryFile(prefix="agent-exec-", suffix=".log", delete=False)
-        tmp.write(text.encode("utf-8", errors="replace"))
-        tmp.close()
-        return _truncate(text) + f"\n…(完整输出 {len(text)} 字符已存 {tmp.name}, 可 execute tail/cat 查看)"
-    return text
+def _killpg(p: subprocess.Popen) -> None:
+    """杀 p 所在进程组; 已死/无权限则忽略。"""
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(os.getpgid(p.pid), signal.SIGKILL)  # 杀整组, 防 shell 的孙子进程残留孤儿
+
+
+def _execute_tool(workdir, ledger) -> Tool:
+    """execute 工具工厂: 闭包持有在途 Popen, 供 loop 打断废弃时 kill()
+    (立即打断语义: 整组 SIGKILL, 不等命令自然结束)。
+    同一 agent 串行派发工具, live 单槽足够。"""
+    live: list = []
+
+    def run(args: dict) -> str:
+        command, t = args["command"], int(args.get("timeout", EXEC_TIMEOUT))
+        # start_new_session(POSIX): 子进程自成进程组, 超时/打断可整组击杀(pi bash.ts 语义)
+        p = subprocess.Popen(
+            command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, errors="replace", cwd=workdir, start_new_session=True,
+        )
+        live[:] = [p]
+        try:
+            out, err = p.communicate(timeout=t)
+        except subprocess.TimeoutExpired:
+            _killpg(p)
+            out, err = p.communicate()  # 收尸, 保住超时前已产出的输出
+            partial = _truncate(((out or "") + (("\n[stderr] " + err) if err else "")).strip())
+            return f"错误: 命令超时(>{t}s), 已 kill 整个进程组。\n[超时前的输出]\n{partial}" if partial else \
+                f"错误: 命令超时(>{t}s), 已 kill 整个进程组(无输出)"
+        text = (out or "") + (("\n[stderr] " + err) if err else "")
+        text = (text.strip() or "(无输出)") + (f"\n[exit {p.returncode}]" if p.returncode else "")
+        n = ledger.see_exec(command)
+        if n >= 3:
+            text += f"\n[提示: 同一命令已连续执行 {n} 次, 结果大概率不变; 若在等外部变化, 换个验证方式]"
+        if len(text) > MAX_OUTPUT:
+            tmp = tempfile.NamedTemporaryFile(prefix="agent-exec-", suffix=".log", delete=False)
+            tmp.write(text.encode("utf-8", errors="replace"))
+            tmp.close()
+            return _truncate(text) + f"\n…(完整输出 {len(text)} 字符已存 {tmp.name}, 可 execute tail/cat 查看)"
+        return text
+
+    def kill() -> None:
+        if live and live[0].poll() is None:
+            _killpg(live[0])
+
+    return Tool("execute", f"执行 shell 命令(真实 shell, 用真实路径), 默认超时 {EXEC_TIMEOUT} 秒。",
+                {"type": "object", "properties": {
+                     "command": {"type": "string"}, "timeout": {"type": "integer"}},
+                 "required": ["command"]},
+                run, ledger=ledger, kill=kill)
 
 
 def builtin_tools(workdir: str) -> list[Tool]:
@@ -349,9 +372,5 @@ def builtin_tools(workdir: str) -> list[Tool]:
                  "replace_all": {"type": "boolean"}},
               "required": ["path"]},
              lambda a: _edit(workdir, a, ledger), ledger=ledger),
-        Tool("execute", f"执行 shell 命令(真实 shell, 用真实路径), 默认超时 {EXEC_TIMEOUT} 秒。",
-             {"type": "object", "properties": {
-                 "command": {"type": "string"}, "timeout": {"type": "integer"}},
-              "required": ["command"]},
-             lambda a: _execute(workdir, a, ledger), ledger=ledger),
+        _execute_tool(workdir, ledger),
     ]
