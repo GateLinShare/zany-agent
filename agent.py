@@ -82,8 +82,11 @@ def build_agent(workdir: str, with_mcp: bool = True):
     tools += load_plugins(workdir)  # .env 的 ZANY_PLUGINS 选装能力插件(core/plugins/<name>.py)
     if with_mcp:
         tools += load_mcp_tools()  # 阻塞(每台最多 PROBE_TIMEOUT); TUI 传 False 后台补
-    tools.append(make_task_tool(model, STYLE_PROMPT, workdir, []))  # ponytail: 子代理不载 MCP, 够用再说
-    return Agent(model, STYLE_PROMPT + skill_section(workdir), tools, workdir, max_turns=max_turns)
+    interrupt_flag: dict = {}  # 主/子代理共享打断标志(见 core/subagent.py)
+    tools.append(make_task_tool(model, STYLE_PROMPT, workdir, [],
+                                shared_interrupt=interrupt_flag))  # ponytail: 子代理不载 MCP, 够用再说
+    return Agent(model, STYLE_PROMPT + skill_section(workdir), tools, workdir,
+                 max_turns=max_turns, shared_interrupt=interrupt_flag)
 
 
 if __name__ == "__main__":

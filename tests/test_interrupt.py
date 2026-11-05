@@ -130,6 +130,17 @@ def test_execute_killed_on_interrupt():
     assert r.returncode != 0, f"execute 进程组未被杀死: {r.stdout!r}"
 
 
+def test_interrupt_reaches_subagent():
+    """task 子代理与主代理共享打断标志: 主对话 interrupt 后子代理轮首检查点立即生效,
+    不会把子任务整个跑完(子代理 owns_interrupt=False, 不清共享标志)。"""
+    from core.subagent import make_task_tool
+    shared: dict = {}
+    tt = make_task_tool(FakeModel([]), "", tempfile.mkdtemp(), [], shared_interrupt=shared)
+    shared["reason"] = "主对话已打断"
+    out = tt.run({"prompt": "hi"})
+    assert out == "hi", f"子代理应在轮首检查点立即中断, 实际: {out!r}"
+
+
 def test_normal_turn_unaffected():
     turn = [Ev("message_start",
                message=NS(usage=NS(input_tokens=10, cache_read_input_tokens=0,
@@ -148,6 +159,7 @@ def test_normal_turn_unaffected():
 
 if __name__ == "__main__":
     for fn in (test_interrupt_abandons_inflight_tool, test_interrupt_discards_remaining_calls,
-               test_execute_killed_on_interrupt, test_normal_turn_unaffected):
+               test_execute_killed_on_interrupt, test_interrupt_reaches_subagent,
+               test_normal_turn_unaffected):
         fn()
         print(f"{fn.__name__} ok")

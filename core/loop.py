@@ -30,7 +30,8 @@ def user_memory_path() -> Path:
 
 
 class Agent:
-    def __init__(self, model, system_base: str, tools: list, workdir: str, max_turns: int = MAX_TURNS):
+    def __init__(self, model, system_base: str, tools: list, workdir: str, max_turns: int = MAX_TURNS,
+                 shared_interrupt: dict | None = None, owns_interrupt: bool = True):
         self.model = model
         self.system_base = system_base
         self.tools = {t.name: t for t in tools}
@@ -40,8 +41,10 @@ class Agent:
         # 随 save_session 落盘、resume 时恢复。子代理消耗不计入。
         self.usage = {"input": 0, "output": 0, "calls": 0}
         # 打断标志(hermes agent.interrupt): UI 线程置位, loop 在事件间隙协作式停下。
-        # CPython 下 str 赋值原子, 无需锁; 工具跑在专职 worker 线程(见 _dispatch)。
-        self._interrupt_requested: str | None = None
+        # 标志住 dict 槽(单键读写原子, 无需锁): 子代理与主代理共享同一 dict,
+        # task 工具在途时主对话打断能传导进子代理的检查点 a/b/c。无共享时自建。
+        self._interrupt_flag = shared_interrupt if shared_interrupt is not None else {}
+        self._owns_interrupt = owns_interrupt  # 子代理 False: 只读共享标志, 不清不写
         self.was_interrupted = False  # 上一轮是否被打断(结果属性, 供 UI/headless 读)
         # 工具专职 worker 线程: 所有 tool.run 串行在这一个线程跑 —— 线程身份恒定,
         # playwright sync 这类线程绑定对象不跨线程; 打断时 loop 立即废弃在途调用
@@ -52,6 +55,18 @@ class Agent:
         self._last_prompt_tokens: int | None = None  # 上次响应真实 prompt tokens
         self._ineffective = 0        # 连续无效压缩计数(压缩后降幅 <10%)
         self._compact_dead = False   # 摘要 LLM 失败熔断: 本会话不再自动压
+
+    @property
+    def _interrupt_requested(self) -> str | None:
+        """读 dict 槽: 子代理共享主代理的 flag, 打断传导; 写兼容旧 str 赋值语义。"""
+        return self._interrupt_flag.get("reason")
+
+    @_interrupt_requested.setter
+    def _interrupt_requested(self, v: str | None) -> None:
+        if v is None:
+            self._interrupt_flag.pop("reason", None)
+        else:
+            self._interrupt_flag["reason"] = v
 
     def add_tools(self, extra: list) -> list[str]:
         """后补工具(MCP 后台加载完), 返回新增名字; 同名覆盖。"""
@@ -72,7 +87,8 @@ class Agent:
             abort()
 
     def clear_interrupt(self) -> None:
-        self._interrupt_requested = None
+        if self._owns_interrupt:  # 子代理共享主对话的标志: 它的 stream 首尾清理不能把主对话的打断抹掉
+            self._interrupt_requested = None
 
     def _system(self) -> str:
         """每轮重读 AGENTS.md(项目记忆) + 个人记忆(路径见 user_memory_path) —— 改记忆不用重启。"""
@@ -319,6 +335,8 @@ class Agent:
             compressed, tokens, est_before, est_after = maybe_summarize(
                 self.model, messages, prompt_tokens=self._last_prompt_tokens)
         except Exception as e:  # 压缩失败不炸轮次 —— 错误即文本
+            if self._interrupt_requested:  # 打断引发的 abort 错误不是摘要故障, 不熔断
+                return []
             self._compact_dead = True
             return [("compact_error", str(e))]
         if not compressed:
