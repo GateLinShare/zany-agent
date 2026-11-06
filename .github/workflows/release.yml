@@ -1,0 +1,30 @@
+name: release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "version, must equal pyproject.toml"
+        required: true
+jobs:
+  platform:
+    strategy:
+      matrix:
+        include:
+          - { os: ubuntu-22.04, target: linux-x64 }   # glibc 2.35 下限
+          - { os: macos-14, target: darwin-arm64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - run: npm config set //registry.npmjs.org/:_authToken=$NPM_TOKEN
+        env: { NPM_TOKEN: "${{ secrets.NPM_TOKEN }}" }
+      - run: bash npm/release.sh ${{ matrix.target }}
+  main:
+    needs: platform   # 主包 optionalDependencies 引用的平台包必须先存在
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm config set //registry.npmjs.org/:_authToken=$NPM_TOKEN
+        env: { NPM_TOKEN: "${{ secrets.NPM_TOKEN }}" }
+      - run: bash npm/release.sh main
