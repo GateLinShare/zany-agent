@@ -13,7 +13,7 @@ import queue
 import threading
 from pathlib import Path
 
-from .messages import text_of, tool_uses
+from .messages import result_text, tool_uses
 from .summarize import maybe_summarize
 
 MAX_TURNS = 40  # 单次 run 的工具轮数上限, 防模型打转烧钱
@@ -261,7 +261,8 @@ class Agent:
                     tool = self.tools.get(name)
                     out = f"错误: 未知工具 {name}" if tool is None else self._dispatch(tool, args)
                 results.append({"type": "tool_result", "tool_use_id": call["id"], "content": out})
-                yield ("tool_result", call["id"], name, json.dumps(args, ensure_ascii=False), out)
+                # UI 侧永远收文本; 图片分支的 block 数组原样进 messages(模型看图, UI 看说明文字)
+                yield ("tool_result", call["id"], name, json.dumps(args, ensure_ascii=False), result_text(out))
             messages.append({"role": "user", "content": results})
             # postflight(hermes): 对话完校验, 超阈值就地压缩, 下一轮带上瘦身后的历史
             if not self._interrupt_requested:  # 已请求打断: 直接收尾, 不再花一次摘要调用

@@ -833,7 +833,7 @@ class ChatApp(App):
                 for b in content:
                     if isinstance(b, dict) and b.get("type") == "tool_result":
                         name, args = tool_uses_by_id.get(b.get("tool_use_id"), ("?", {}))
-                        self.log_write(tool_line(name, args, 0.0, str(b.get("content", ""))))
+                        self.log_write(tool_line(name, args, 0.0, result_text(b.get("content", ""))))
                 _marks_at(idx + 1)  # 打断轮: 轮末收尾的 tool_result 之后即轮结束点
             elif m["role"] == "user":
                 self.chat_line("user", text_of(m).strip())
