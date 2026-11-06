@@ -12,4 +12,4 @@ generated file), then run `zany` in any project directory.
 - Optional: MCP servers via `~/.zany/mcp_servers.json` (requires `uv` on PATH)
 - Sessions/memory live in `~/.zany/`
 
-Linux x86-64 (glibc 2.35+) and macOS Apple Silicon are shipped.
+Linux x86-64 (glibc 2.35+), macOS Apple Silicon and Windows x64 are shipped.

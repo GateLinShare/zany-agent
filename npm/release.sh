@@ -16,13 +16,16 @@ if [ "$TARGET" = main ]; then
   cp env.example "$DIR/"
   cp npm/main/README.md "$DIR/" 2>/dev/null || echo "zany-agent" > "$DIR/README.md"
 else
+  # win32: 产物名 zany.exe; --add-data 分隔符平台差异(linux/macos=":", windows=";", 路径含 C: 盘符)
+  EXE=""; SEP=":"
+  case "$TARGET" in win32-*) EXE=".exe"; SEP=";" ;; esac
   uv run pyinstaller --onefile --name zany \
     --collect-all textual --collect-all croniter \
-    --add-data "styles:styles" --add-data "skills:skills" \
+    --add-data "styles${SEP}styles" --add-data "skills${SEP}skills" \
     tui.py
   DIR="$OUT/zany-agent-$TARGET"
   mkdir -p "$DIR/bin"
-  cp dist/zany "$DIR/bin/zany"
+  cp dist/zany$EXE "$DIR/bin/zany$EXE"
   OS="${TARGET%%-*}"; CPU="${TARGET##*-}"
   cat > "$DIR/package.json" <<EOF
 {

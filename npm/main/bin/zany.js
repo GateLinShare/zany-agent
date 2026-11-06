@@ -10,7 +10,7 @@ let bin;
 try {
   bin = require.resolve(`zany-agent-${process.platform}-${process.arch}/bin/zany${suffix}`);
 } catch {
-  console.error(`zany-agent: 平台包缺失 (${process.platform}-${process.arch} 不在支持列表: linux-x64 / darwin-arm64)`);
+  console.error(`zany-agent: 平台包缺失 (${process.platform}-${process.arch} 不在支持列表: linux-x64 / darwin-arm64 / win32-x64)`);
   process.exit(1);
 }
 
