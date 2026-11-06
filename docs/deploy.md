@@ -11,6 +11,17 @@ bash deploy.sh
 
 脚本（仓库根 `deploy.sh`）依次做四件事，幂等，重复跑无副作用：
 
+### Windows
+
+仓库根跑原生批处理（cmd 或 PowerShell）：
+
+```powershell
+git clone <仓库地址> && cd zany-agent
+deploy.cmd
+```
+
+与 `deploy.sh` 等价：uv sync（develop 自动带 feishu extra）→ 生成全局命令 shim 到 `%USERPROFILE%\.local\bin`（uv 同目录，装 uv 时已进 PATH）。Git Bash 里跑 `bash deploy.sh` 也会自动转给 `deploy.cmd`；WSL 里跑会被拦下提示用 `deploy.cmd`（避免装到 Linux 侧）。develop 分支的浏览器内核暂走 `install_browser.sh`（需 Git Bash）。
+
 | 步骤 | 内容 | 说明 |
 |---|---|---|
 | 1. uv | 没有才装 | 官方安装器，落 `~/.local/bin` |
@@ -41,7 +52,7 @@ exec uv run --project <部署路径> python <部署路径>/tui.py "$@"
 
 ## .env
 
-仓库约定 `.env`（含密钥）随 git 提交，clone 即得、开箱能用；只有换飞书 bot / 白名单时才要改（改完网关需重启）。
+仓库约定 `.env`（含密钥）不入库：新机 `cp env.example .env` 后填密钥（deploy 脚本会检查并提示）；只有换飞书 bot / 白名单时才要改（改完网关需重启）。
 
 ## git 走代理拉 GitHub
 
