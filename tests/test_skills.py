@@ -51,6 +51,15 @@ def main():
     # 6. 一个目录都没有 → 空串(不产生空标题)
     assert skill_section(str(tmp / "nowhere"), sources=("/skills",)) == ""
 
+    # 7. 同名技能去重: 先到先得, 两个源同名只列一条, 路径取先者
+    mk_skill(tmp / "skills", "dup", "项目版")
+    mk_skill(tmp / ".agents", "dup", "agents版")  # 目录名故意不叫 skills, 直接当 source 根
+    sec = skill_section(str(tmp), sources=("/skills", "/.agents"))
+    assert sec.count("- dup:") == 1 and "dup: 项目版" in sec and ".agents" not in sec, sec
+
+    # 8. 默认 sources 含 .agents/skills, 位于 .claude 之后
+    assert list(skill_section.__defaults__[0]) == ["/skills", "/.claude/skills", "/.agents/skills", "~/.zany/skills"]
+
     print("test_skills: all passed")
 
 
