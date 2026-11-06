@@ -145,3 +145,8 @@ bash deploy.sh             # 一键部署(fresh clone → uv/依赖/浏览器内
 
 ## 回复风格
 - 用户反馈(2026-10-29)：收尾别加"注意/建议"式叮嘱段落，结论给完即止
+
+## docker 同容器双网关(主备)
+主备两个网关跑在同一个容器里: 主代码 /opt/code/zany-primary(会话/记忆 /opt/data/zany-primary)、备代码 /opt/code/zany-standby(会话/记忆 /opt/data/zany-standby), 各连一个飞书 bot, 代码目录独立(改坏不连坐)。
+互相检查直接读对方目录(同容器天然可见): 主视角看备 = 代码 /opt/code/zany-standby、会话 /opt/data/zany-standby/sessions/; 备视角对称。ps 能看到双方进程。
+交换代码改动: 两边 origin 都指向共享仓库 /opt/repo, push/pull 交换; 该仓库独立演化, 与开发 checkout 无关。

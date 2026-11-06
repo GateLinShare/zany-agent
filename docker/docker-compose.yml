@@ -1,0 +1,23 @@
+# 双网关部署: 同一个容器里跑主备两个 gateway 进程(各连一个飞书 bot), 代码目录独立(改坏一份不连坐)。
+# 容器内路径: 代码 /opt/code/zany-{primary,standby}, 会话/记忆 /opt/data/zany-{primary,standby}, 共享仓库 /opt/repo。
+# 同容器互查天然可见: 对方代码 /opt/code/zany-standby, 对方会话 /opt/data/zany-standby/sessions/(主视角)。
+# 代码不在镜像里: 共享裸仓库挂 /opt/repo, 首启 entrypoint 克隆, 两边 remote 固定指向它。
+# 所有挂载目录统一在宿主 /data01/tsn/zany-gateway/ 下(repo.git + primary|standby/{home,code})。
+# 前置(宿主, 属主对齐镜像 uid 1000): mkdir -p 各目录 && chown -R 1000:1000, 见 README.md
+services:
+  gateway:
+    image: zany-gateway
+    container_name: tsn-zany-gateway
+    init: true # 双保险: 绕过 ENTRYPOINT 的裸 docker exec 场景也有 docker-init 兜底
+    restart: unless-stopped
+    volumes:
+      # 共享裸仓库 → /opt/repo
+      - ${ZANY_DEPLOY_ROOT:-/data01/tsn/zany-gateway}/repo.git:/opt/repo
+      # 主: 代码 + 个人数据(会话/技能/记忆) + 配置单文件(改 .env 只需编辑宿主文件 + compose restart)
+      - ${ZANY_DEPLOY_ROOT:-/data01/tsn/zany-gateway}/primary/code:/opt/code/zany-primary
+      - ${ZANY_DEPLOY_ROOT:-/data01/tsn/zany-gateway}/primary/home:/opt/data/zany-primary/.zany
+      - ${ZANY_DEPLOY_ROOT:-/data01/tsn/zany-gateway}/primary/home/.env:/opt/code/zany-primary/.env:ro
+      # 备: 代码 + 个人数据 + 配置单文件
+      - ${ZANY_DEPLOY_ROOT:-/data01/tsn/zany-gateway}/standby/code:/opt/code/zany-standby
+      - ${ZANY_DEPLOY_ROOT:-/data01/tsn/zany-gateway}/standby/home:/opt/data/zany-standby/.zany
+      - ${ZANY_DEPLOY_ROOT:-/data01/tsn/zany-gateway}/standby/home/.env:/opt/code/zany-standby/.env:ro

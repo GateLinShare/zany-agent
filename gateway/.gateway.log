@@ -1,0 +1,380 @@
+warning: `VIRTUAL_ENV=/data01/tsn/code/tsn_files/miniagent/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+Traceback (most recent call last):
+  File "/data01/tsn/code/tsn_files/miniagent-develop/gateway/main.py", line 63, in <module>
+    main()
+  File "/data01/tsn/code/tsn_files/miniagent-develop/gateway/main.py", line 59, in main
+    channel.start()  # ws 阻塞
+    ^^^^^^^^^^^^^^^
+  File "/data01/tsn/code/tsn_files/miniagent-develop/gateway/channels/feishu.py", line 117, in start
+    EventDispatcherHandler.builder()
+TypeError: EventDispatcherHandler.builder() missing 2 required positional arguments: 'encrypt_key' and 'verification_token'
+warning: `VIRTUAL_ENV=/data01/tsn/code/tsn_files/miniagent/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+[Lark] [2026-10-30 14:46:32,329] [ERROR] handle message failed, message_type: event, message_id: 64a1ef5e-5c22-4a39-8472-787b4bbd5e26, trace_id: 7ac68dba0b1391dc136ffe907ecac645, err: processor not found, type: im.message.message_read_v1 [conn_id=7702348514693975218]
+[Lark] [2026-10-30 14:46:37,931] [ERROR] handle message failed, message_type: event, message_id: 54e5da47-e895-48b2-a4fa-b42ce4e82b99, trace_id: 8237d6f6fa8d7d5ed84424e20c70178b, err: processor not found, type: im.message.message_read_v1 [conn_id=7702348514693975218]
+[Lark] [2026-10-30 14:46:40,035] [ERROR] handle message failed, message_type: event, message_id: b3d0202b-1f58-48b2-b5c4-9d5f6c128728, trace_id: 9736209f71bef82606b346daaac237da, err: processor not found, type: im.message.message_read_v1 [conn_id=7702348514693975218]
+[Lark] [2026-10-30 14:46:47,459] [ERROR] handle message failed, message_type: event, message_id: 0ae1c7b0-7f13-4e1f-a420-ddb11b5ed43f, trace_id: 7ac68dba0b1391dc136ffe907ecac645, err: processor not found, type: im.message.message_read_v1 [conn_id=7702348514693975218]
+[Lark] [2026-10-30 14:46:50,647] [ERROR] handle message failed, message_type: event, message_id: b9e00a90-2dc7-4885-b613-09cd7f411cb3, trace_id: 3ddfb76eb5353545ca0ca815f0c30a92, err: processor not found, type: im.message.message_read_v1 [conn_id=7702348514693975218]
+[Lark] [2026-10-30 14:46:52,804] [ERROR] handle message failed, message_type: event, message_id: 3fec3006-45b8-473a-b26a-d9789f535eb8, trace_id: baf30b466b590edf7d06e80adf364bf1, err: processor not found, type: im.message.message_read_v1 [conn_id=7702348514693975218]
+[Lark] [2026-10-30 14:46:53,038] [ERROR] handle message failed, message_type: event, message_id: e4fa9866-8768-4bc9-b7c5-8081a6898821, trace_id: 8237d6f6fa8d7d5ed84424e20c70178b, err: processor not found, type: im.message.message_read_v1 [conn_id=7702348514693975218]
+[Lark] [2026-10-30 14:46:55,163] [ERROR] handle message failed, message_type: event, message_id: 0e38a216-5c57-45bc-a91f-431b2c639254, trace_id: 9736209f71bef82606b346daaac237da, err: processor not found, type: im.message.message_read_v1 [conn_id=7702348514693975218]
+[Lark] [2026-10-30 14:47:06,927] [ERROR] handle message failed, message_type: event, message_id: 9bfe17fb-6e11-4728-9a63-9656afd35b4d, trace_id: 3ddfb76eb5353545ca0ca815f0c30a92, err: processor not found, type: im.message.message_read_v1 [conn_id=7702348514693975218]
+[Lark] [2026-10-30 14:47:07,903] [ERROR] handle message failed, message_type: event, message_id: a9c45c04-ded8-4edc-a95a-061d40bcbe96, trace_id: baf30b466b590edf7d06e80adf364bf1, err: processor not found, type: im.message.message_read_v1 [conn_id=7702348514693975218]
+[Lark] [2026-10-30 14:47:34,577] [ERROR] handle message failed, message_type: event, message_id: 4a0b2115-0e3e-4255-9141-f5243d9743d8, trace_id: 7ac93527cef86b0c2a6635f1e56893ac, err: processor not found, type: im.message.message_read_v1 [conn_id=7702348514693975218]
+[Lark] [2026-10-30 14:47:36,556] [ERROR] handle message failed, message_type: event, message_id: fdf0ea99-c67b-4ff0-8e24-437584f47be4, trace_id: 72c81e123c897927b8f21370105af7c6, err: processor not found, type: im.message.message_read_v1 [conn_id=7702348514693975218]
+(收到信号 15, 等在跑的会话收尾…)
+warning: `VIRTUAL_ENV=/data01/tsn/code/tsn_files/miniagent/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+[Lark] [2026-10-30 14:47:49,743] [ERROR] handle message failed, message_type: event, message_id: b934d6fa-01cc-45eb-b475-968f4bf2a0c9, trace_id: 7ac93527cef86b0c2a6635f1e56893ac, err: processor not found, type: im.message.message_read_v1 [conn_id=7702348904743144689]
+[Lark] [2026-10-30 14:47:51,654] [ERROR] handle message failed, message_type: event, message_id: 6fd48bf4-e26b-4b56-b9ee-640ed26dff9e, trace_id: 72c81e123c897927b8f21370105af7c6, err: processor not found, type: im.message.message_read_v1 [conn_id=7702348904743144689]
+[Lark] [2026-10-30 14:48:22,717] [ERROR] handle message failed, message_type: event, message_id: ef2551d8-88dc-43e4-a0a5-cb6045bb0e3c, trace_id: 33e2076bda007569704f7b81a13740a8, err: processor not found, type: im.message.message_read_v1 [conn_id=7702348904743144689]
+[Lark] [2026-10-30 14:48:24,726] [ERROR] handle message failed, message_type: event, message_id: abbcde90-ea42-45db-ad02-b254f2e972c1, trace_id: 55b9391218f5d54334d0038486492d0f, err: processor not found, type: im.message.message_read_v1 [conn_id=7702348904743144689]
+[Lark] [2026-10-30 14:48:31,809] [ERROR] handle message failed, message_type: event, message_id: c088e4d0-cce1-47cb-8692-443da314c291, trace_id: 06ffe8a9abe26a63f68552356b1f7dad, err: processor not found, type: im.message.message_read_v1 [conn_id=7702348904743144689]
+[Lark] [2026-10-30 14:48:37,833] [ERROR] handle message failed, message_type: event, message_id: 2410d523-2cfe-4122-a1fb-001abf09917a, trace_id: 33e2076bda007569704f7b81a13740a8, err: processor not found, type: im.message.message_read_v1 [conn_id=7702348904743144689]
+[Lark] [2026-10-30 14:48:39,930] [ERROR] handle message failed, message_type: event, message_id: 78325e04-0e60-4649-9cf3-83256e2fe269, trace_id: 55b9391218f5d54334d0038486492d0f, err: processor not found, type: im.message.message_read_v1 [conn_id=7702348904743144689]
+[Lark] [2026-10-30 14:48:46,982] [ERROR] handle message failed, message_type: event, message_id: 73a21c40-8d8c-4922-999b-0921026b3f05, trace_id: 06ffe8a9abe26a63f68552356b1f7dad, err: processor not found, type: im.message.message_read_v1 [conn_id=7702348904743144689]
+(收到信号 15, 等在跑的会话收尾…)
+warning: `VIRTUAL_ENV=/data01/tsn/code/tsn_files/miniagent/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+(收到信号 15, 等在跑的会话收尾…)
+warning: `VIRTUAL_ENV=/data01/tsn/code/tsn_files/miniagent/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+(收到信号 15, 等在跑的会话收尾…)(收到信号 15, 等在跑的会话收尾…)
+warning: `VIRTUAL_ENV=/data01/tsn/code/tsn_files/miniagent/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+[Lark] [2026-10-30 14:50:28,940] [ERROR] handle message failed, message_type: event, message_id: 2aae7046-46ee-4bad-b2b5-a7a59f6b11ad, trace_id: ef027e86be501bbd7cf9fb3bf9af08c5, err: processor not found, type: im.message.message_read_v1 [conn_id=7702349556059131115]
+[Lark] [2026-10-30 14:50:31,146] [ERROR] handle message failed, message_type: event, message_id: 23ff7b9e-7ce2-420a-ad8b-d3d0ff0e3f7b, trace_id: c546e6e677f335dd367aebb1ce9358f4, err: processor not found, type: im.message.message_read_v1 [conn_id=7702349556059131115]
+[Lark] [2026-10-30 14:50:44,092] [ERROR] handle message failed, message_type: event, message_id: c54b7c75-8f48-4cb8-98b2-c232475c2b68, trace_id: ef027e86be501bbd7cf9fb3bf9af08c5, err: processor not found, type: im.message.message_read_v1 [conn_id=7702349556059131115]
+[Lark] [2026-10-30 14:50:46,313] [ERROR] handle message failed, message_type: event, message_id: b30666d5-d3f2-4a85-b27c-d5b66e6ef8a5, trace_id: c546e6e677f335dd367aebb1ce9358f4, err: processor not found, type: im.message.message_read_v1 [conn_id=7702349556059131115]
+(收到信号 15, 等在跑的会话收尾…)
+warning: `VIRTUAL_ENV=/data01/tsn/code/tsn_files/miniagent/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+已有 gateway 在跑(同 workdir), 先 stop 再 start
+warning: `VIRTUAL_ENV=/data01/tsn/code/tsn_files/miniagent/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+(收到信号 15, 等在跑的会话收尾…)(收到信号 15, 等在跑的会话收尾…)
+warning: `VIRTUAL_ENV=/data01/tsn/code/tsn_files/miniagent/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+[Lark] [2026-10-30 14:53:34,950] [ERROR] handle message failed, message_type: event, message_id: 0ade1168-1e97-4cf0-97d3-396ba43be0f8, trace_id: 8723bd6faed3800ca4cc55dc914f7369, err: processor not found, type: im.message.message_read_v1 [conn_id=7702350351415954624]
+[Lark] [2026-10-30 14:53:37,939] [ERROR] handle message failed, message_type: event, message_id: 7f0673a6-0c88-436f-bc4a-1156bd76f4b9, trace_id: 33e2076bda007569704f7b81a13740a8, err: processor not found, type: im.message.message_read_v1 [conn_id=7702350351415954624]
+[Lark] [2026-10-30 14:53:40,020] [ERROR] handle message failed, message_type: event, message_id: d6adea43-9883-4115-a3aa-b34d22d2d52f, trace_id: 55b9391218f5d54334d0038486492d0f, err: processor not found, type: im.message.message_read_v1 [conn_id=7702350351415954624]
+[Lark] [2026-10-30 14:53:47,138] [ERROR] handle message failed, message_type: event, message_id: 33f8f32c-610b-4b02-adda-7090ad5d4b6a, trace_id: 06ffe8a9abe26a63f68552356b1f7dad, err: processor not found, type: im.message.message_read_v1 [conn_id=7702350351415954624]
+[Lark] [2026-10-30 14:53:50,117] [ERROR] handle message failed, message_type: event, message_id: 488f7ec8-a00f-453c-861e-77831d70e697, trace_id: 8723bd6faed3800ca4cc55dc914f7369, err: processor not found, type: im.message.message_read_v1 [conn_id=7702350351415954624]
+[Lark] [2026-10-30 14:55:04,835] [ERROR] receive message loop exit, err: sent 1011 (internal error) keepalive ping timeout; no close frame received [conn_id=7702350351415954624]
+[Lark] [2026-10-30 14:55:27,657] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-10-30 14:57:17,709] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-10-30 14:59:07,762] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+(收到信号 15, 等在跑的会话收尾…)(收到信号 15, 等在跑的会话收尾…)
+warning: `VIRTUAL_ENV=/data01/tsn/code/tsn_files/miniagent/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+[Lark] [2026-10-30 15:01:05,024] [ERROR] handle message failed, message_type: event, message_id: 1a175174-6c40-41b7-ae85-1c5f6ce16f36, trace_id: 0001e43dc0ad627949168ae7b7602ad4, err: processor not found, type: im.message.message_read_v1 [conn_id=7702352338812357880]
+[Lark] [2026-10-30 15:01:20,242] [ERROR] handle message failed, message_type: event, message_id: fb39543b-e790-4554-9e27-f7d84fa08740, trace_id: 0001e43dc0ad627949168ae7b7602ad4, err: processor not found, type: im.message.message_read_v1 [conn_id=7702352338812357880]
+[Lark] [2026-10-30 15:01:56,896] [ERROR] handle message failed, message_type: event, message_id: 2d355055-6125-4bfa-91ec-50985af3a144, trace_id: 0cc916ee298da405c2a1564ba3308e63, err: processor not found, type: im.message.message_read_v1 [conn_id=7702352338812357880]
+[Lark] [2026-10-30 15:02:12,026] [ERROR] handle message failed, message_type: event, message_id: 486ff47d-ad7b-4018-a3f0-74fb53fe309d, trace_id: 0cc916ee298da405c2a1564ba3308e63, err: processor not found, type: im.message.message_read_v1 [conn_id=7702352338812357880]
+[Lark] [2026-10-30 15:04:10,753] [ERROR] receive message loop exit, err: sent 1011 (internal error) keepalive ping timeout; no close frame received [conn_id=7702352338812357880]
+[Lark] [2026-10-30 15:04:41,063] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-10-30 15:06:31,089] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-10-30 15:08:21,142] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-10-30 15:11:31,435] [ERROR] handle message failed, message_type: event, message_id: a4a0da92-b358-4dc2-967d-44aef206887c, trace_id: b2046212ccb6ff33c0fff3467ea5233f, err: processor not found, type: im.message.message_read_v1 [conn_id=7702354631659146530]
+[Lark] [2026-10-30 15:14:05,714] [ERROR] handle message failed, message_type: event, message_id: 7267ca0c-984f-4cd1-bd74-3080fc70b8fe, trace_id: 3951d5765cf23f502690a7b517333439, err: processor not found, type: im.message.message_read_v1 [conn_id=7702354631659146530]
+[Lark] [2026-10-30 15:14:20,843] [ERROR] handle message failed, message_type: event, message_id: eef14c34-f062-4da9-8215-4f4f3a5883f9, trace_id: 3951d5765cf23f502690a7b517333439, err: processor not found, type: im.message.message_read_v1 [conn_id=7702354631659146530]
+[Lark] [2026-10-30 15:14:35,459] [ERROR] handle message failed, message_type: event, message_id: dd75c73a-f298-4fc9-afda-d3cc7a7d99bc, trace_id: 668b58ac30d948f2f6ce19fd6a543e6c, err: processor not found, type: im.message.message_read_v1 [conn_id=7702354631659146530]
+[Lark] [2026-10-30 15:14:50,630] [ERROR] handle message failed, message_type: event, message_id: 1a0b8b9b-d722-47d0-ab6c-fe1722cadedf, trace_id: 668b58ac30d948f2f6ce19fd6a543e6c, err: processor not found, type: im.message.message_read_v1 [conn_id=7702354631659146530]
+[Lark] [2026-10-30 15:19:20,928] [ERROR] handle message failed, message_type: event, message_id: e4d3a978-1ce7-496a-a730-3ef2fd3c7b60, trace_id: 3951d5765cf23f502690a7b517333439, err: processor not found, type: im.message.message_read_v1 [conn_id=7702354631659146530]
+[Lark] [2026-10-30 15:19:50,811] [ERROR] handle message failed, message_type: event, message_id: 6a998471-6a56-4761-ad29-2f5102258829, trace_id: 668b58ac30d948f2f6ce19fd6a543e6c, err: processor not found, type: im.message.message_read_v1 [conn_id=7702354631659146530]
+[Lark] [2026-10-30 15:20:36,902] [ERROR] handle message failed, message_type: event, message_id: 7e344622-9950-46df-8ca3-d5f6cfef75dd, trace_id: 58979340f064109e8d1a87d19ae88605, err: processor not found, type: im.message.message_read_v1 [conn_id=7702354631659146530]
+[Lark] [2026-10-30 15:20:52,008] [ERROR] handle message failed, message_type: event, message_id: 2a52f44a-8745-44c3-ab63-8c606cf4ac39, trace_id: 58979340f064109e8d1a87d19ae88605, err: processor not found, type: im.message.message_read_v1 [conn_id=7702354631659146530]
+(收到信号 15, 等在跑的会话收尾…)(收到信号 15, 等在跑的会话收尾…)
+warning: `VIRTUAL_ENV=/data01/tsn/code/tsn_files/deepagents-mini-agent/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+[Lark] [2026-10-30 15:25:13,150] [ERROR] handle message failed, message_type: event, message_id: d57d263f-6a49-488a-88ab-36c74c34ff09, trace_id: a43a4859511256cb902aac3fb9f4643b, err: processor not found, type: im.message.message_read_v1 [conn_id=7702358519723134201]
+[Lark] [2026-10-30 15:25:27,059] [ERROR] handle message failed, message_type: event, message_id: b3ca9b5f-47a0-46c1-96d2-eecede8fdd63, trace_id: 6cd348fdb269dad485a760677b64be78, err: processor not found, type: im.message.message_read_v1 [conn_id=7702358519723134201]
+[Lark] [2026-10-30 15:25:42,140] [ERROR] handle message failed, message_type: event, message_id: 68cac8e3-39ea-4156-b5a1-049d50b6afc5, trace_id: 6cd348fdb269dad485a760677b64be78, err: processor not found, type: im.message.message_read_v1 [conn_id=7702358519723134201]
+[Lark] [2026-10-30 15:25:52,164] [ERROR] handle message failed, message_type: event, message_id: 3da9972c-18a6-4ab8-84cc-0263db34e957, trace_id: 58979340f064109e8d1a87d19ae88605, err: processor not found, type: im.message.message_read_v1 [conn_id=7702358519723134201]
+(会话 oc_c0e658e76… 处理失败: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /open-apis/im/v1/messages?receive_id_type=chat_id (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)")))
+[Lark] [2026-10-30 15:26:29,005] [ERROR] receive message loop exit, err: sent 1011 (internal error) keepalive ping timeout; no close frame received [conn_id=7702358519723134201]
+[Lark] [2026-10-30 15:26:29,005] [WARNING] ping failed, err: sent 1011 (internal error) keepalive ping timeout; no close frame received [conn_id=7702358519723134201]
+[Lark] [2026-10-30 15:27:03,014] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-10-30 15:28:53,066] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-10-30 15:30:43,118] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+(收到信号 15, 等在跑的会话收尾…)(收到信号 15, 等在跑的会话收尾…)
+warning: `VIRTUAL_ENV=/data01/tsn/code/tsn_files/deepagents-mini-agent/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+[Lark] [2026-10-30 15:34:52,471] [ERROR] receive message loop exit, err: sent 1011 (internal error) keepalive ping timeout; no close frame received [conn_id=7702360146660609259]
+[Lark] [2026-10-30 15:35:35,504] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-10-30 15:37:25,549] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-10-30 15:39:15,601] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+(收到信号 15, 等在跑的会话收尾…)(收到信号 15, 等在跑的会话收尾…)
+warning: `VIRTUAL_ENV=/data01/tsn/code/tsn_files/miniagent/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+(收到信号 15, 等在跑的会话收尾…)(收到信号 15, 等在跑的会话收尾…)
+warning: `VIRTUAL_ENV=/data01/tsn/code/tsn_files/miniagent/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+(会话 oc_c0e658e76… user: 重启一下加载新代码)
+(收到信号 15, 等在跑的会话收尾…)(收到信号 15, 等在跑的会话收尾…)
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+缺少飞书 SDK(No module named 'lark_oapi'); 运行: uv sync --extra feishu
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+(会话 oc_c0e658e76… user: 你好)
+(收到信号 15, 等在跑的会话收尾…)(收到信号 15, 等在跑的会话收尾…)
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+(会话 oc_c0e658e76… user: 你好)
+(会话 oc_c0e658e76… user: 查看代码要也能加载~/.miniagent/skills下的技能，开发测试好了master分支也提交该功能。)
+(会话 oc_c0e658e76… user: 你建一个测试啊，不然怎么知道开发好了？)
+(会话 oc_c0e658e76… user: 什么代码没动，你在当前工作目录开发好没，开发好了就重启加载新代码)
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+(会话 oc_c0e658e76… user: 在嘛？)
+(会话 oc_c0e658e76… user: master分支具备该功能没有？)
+(会话 oc_c0e658e76… user: 把长期记忆中的hermes_space项目测试环境描述建成技能放进去，个人记忆就不要放具体描述了)
+(会话 oc_c0e658e76… user: 个人记忆里还有啥)
+(会话 oc_c0e658e76… user: 虚拟根那个删掉)
+(会话 oc_c0e658e76… user: 调研hermes的技能自动更新，自动归档合并机制，然后我们有必要引入这个功能嘛。调研不是现在实现)
+(会话 oc_c0e658e76… user: 1，会话提示词，发现有问题，主动path这个引入，2，每多少轮工具调用就触发什么的，这样都是靠他们那个skill_manerger工具嘛？我们好像没有这个)
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+(会话 oc_c0e658e76… user: 可以静默改吧，不要向用户确认。)
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+(会话 oc_c0e658e76… user: 你参考的hermes是哪个版本的)
+(会话 oc_c0e658e76… user: 项目记忆里写的不是这个吧？)
+(会话 oc_c0e658e76… user: 改成参考官方上游。而且那个上游有git记录，看下他的git tag最新的是啥)
+(会话 oc_c0e658e76… user: 又断了？)
+(会话 oc_c0e658e76… user: 你在干啥)
+(会话 oc_c0e658e76… user: 测试定时任务功能，创建多个，查看，和检查是否顺利触发)
+(会话 oc_c0e658e76… user: 你有什么样的定时任务工具)
+(会话 oc_c0e658e76… cron: 【定时任务测试-A】本消息由 cron 任务 test-cron-A 自动投递（计划 12:42 触发）。请用 cron_job list 查看当前清单并回复：)
+(会话 oc_c0e658e76… cron: 【定时任务测试-B】本消息由 cron 任务 test-cron-B 自动投递（计划 12:44 触发）。请只回复一行确认 B 触发成功并报当前时间，不要做其他)
+(会话 oc_c0e658e76… user: 定时任务可以周期性的嘛，比如没天？)
+(会话 oc_c0e658e76… cron: 【定时任务测试-C】本消息由 cron 任务 test-cron-C 自动投递（计划 12:46 触发）。测试收尾：用 cron_job 依次 delete t)
+(会话 oc_c0e658e76… user: 定时任务分继续某个对话，新建对话的吧？看下代码)
+(会话 oc_c0e658e76… user: 那创建的时候带一个新的chat id就是新对话了吧？)
+(会话 oc_c0e658e76… user: 那这个chat id是哪个会话的)
+(会话 oc_c0e658e76… user: 调研下hermes咋弄的)
+(会话 oc_c0e658e76… user: 改成三种模式，默认是当前这种，一个是可以指定一个chat id，他周期性可以继续这个对话，一种是周期性触发是每次创建新对话)
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+(会话 oc_c0e658e76… user: 在嘛)
+(会话 oc_c0e658e76… user: 提交了嘛)
+(会话 oc_c0e658e76… user: 去重表是什么？)
+(会话 oc_c0e658e76… user: 加gitignore)
+(会话 oc_c0e658e76… user: 更新架构文档)
+(会话 oc_c0e658e76… user: 参考hermes space的镜像构建，也建一个构建docker的目录。不过有几个问题，s6和普通用户有必要嘛？)
+(收到信号 15, 等在跑的会话收尾…)
+warning: `VIRTUAL_ENV=/data01/tsn/code/tsn_files/miniagent-develop-bak/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+(会话 oc_c0e658e76… user: 让你调研，没让你直接干活)
+(会话 oc_c0e658e76… user: 那我想要里面运行多个miniagent呢，需要s6嘛？他们互相独立，但能互相通信，跑各自的代码。)
+(会话 oc_c0e658e76… user: 那就先不引进s6，基础镜像用干净的，轻量的，同样拷贝我们自带的浏览器安装进去。你做下设计发我。)
+(会话 oc_c0e658e76… user: 不需要pull啊，你docker image检查一下，有哪些现成的基础镜像可用。)
+(会话 oc_c0e658e76… user: 先写docker file吧，还是分两层，一些基础包浏览器，uv等放到基础镜像。然后拷贝代码时要拷贝整个项目代码，不要拷贝部分。免得内外不同步，uv环境可能要在)
+(会话 oc_c0e658e76… user: 说简洁一点)
+(会话 oc_c0e658e76… user: 你建个子任务构建，观察进展。不要死等，避免网络问题他卡住你也卡住了)
+(会话 oc_c0e658e76… user: 用啥工具创建的什么子任务)
+(会话 oc_c0e658e76… user: 看下进站)
+(会话 oc_c0e658e76… user: 看下)
+(会话 oc_c0e658e76… user: 在干啥？)
+(会话 oc_c0e658e76… user: 为啥有1.15G这么大？)
+(会话 oc_c0e658e76… user: 你接压后删掉zip包不就行嘛？不要用buildkit)
+(会话 oc_c0e658e76… user: 启动容器会启什么进城？)
+(会话 oc_c0e658e76… user: 他的源码 env，放哪里了。)
+(会话 oc_c0e658e76… user: 提交git了嘛？)
+(会话 oc_c0e658e76… user: 刚才通过飞书发了一个图片为啥你识别不了？你是支持识别图片的。检查原因)
+(会话 oc_c0e658e76… user: 修一下)
+(会话 oc_c0e658e76… user: 你好)
+(会话 oc_c0e658e76… user: 你好)
+(会话 oc_c0e658e76… user: 你把自己运行环境挂那个测试容器了？)
+(收到信号 15, 等在跑的会话收尾…)
+warning: `VIRTUAL_ENV=/data01/tsn/code/tsn_files/miniagent-develop-bak/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+(会话 oc_c0e658e76… user: 你好)
+(会话 oc_c0e658e76… user: [图片: /tmp/feishu-images/om_x100b615f576794a0dfd5749b432a714.jpg])
+(会话 oc_c0e658e76… user: 给那个你构建的容器配这个。)
+(会话 oc_c0e658e76… user: 发了消息，他没回)
+(会话 oc_c0e658e76… user: [图片: /tmp/feishu-images/om_x100b615f7ef34ca4c0688b8107978bc.jpg])
+(会话 oc_c0e658e76… user: 为啥你要说做新镜像，运行参数，挂个宿主机目录进去呀，干净的目录。)
+(会话 oc_c0e658e76… user: 提取文字
+ 
+创建成功
+智能体服务接入成功后，即可打开当前应用开始使用。请妥善保管 App ID 和 App Secret，避免他人操控应用，造成数据泄露
+ 
+)
+(会话 oc_c0e658e76… user: 给他发消息了，没回我)
+(会话 oc_c0e658e76… user: 他报错:⚠️ 处理出错: [Errno 13] Permission denied: '/home/app/.miniagent/sessions/app-8c)
+(会话 oc_c0e658e76… user: 构建镜像的时候没有吧~/.miniagent权限给所有用户吧？)
+(会话 oc_c0e658e76… user: 容器中的~/.miniagent要给权限啊，不然运行的时候记忆，什么的怎么写？)
+(会话 oc_c0e658e76… user: 你把宿主机的什么目录挂在进去了)
+(会话 oc_c0e658e76… user: 这个home目录是你在dockerfile里设置的？实际路径是 `/home/app/.miniagent/`，里面：
+
+- `USER.md` — 个人协作记)
+(会话 oc_c0e658e76… user: 噢噢，你见得用户名见app啊，改成user_miniagent，重构建镜像)
+(会话 oc_c0e658e76… user: 你现在dev跑了三个，一个主的，一个备用，一个docker的，更新记忆，免得忘记了。)
+(会话 oc_c0e658e76… user: 记位置和作用就行，你记cli bot openid干啥)
+(会话 oc_c0e658e76… user: 怎么还有bot 和openid？)
+(会话 oc_c0e658e76… user: github网络通吗，帮我克隆下deepseek harness。 先检查能通不)
+(会话 oc_c0e658e76… user: 当前环境其实有vpn的，有个vpn代理，你看正运行的程序，vscode就是通过他启的，怎么让国外地址被代理，国内地址不代理呢。你看下那个vpn工具。先调研，不实)
+(会话 oc_c0e658e76… user: 什么意思，你去把他的模式改一下？为啥还要写脚本？？)
+(会话 oc_c0e658e76… user: 去点一下)
+(会话 oc_c0e658e76… user: 现在你用浏览器工具能走这个代理不？)
+(收到信号 15, 等在跑的会话收尾…)(收到信号 15, 等在跑的会话收尾…)
+warning: `VIRTUAL_ENV=/data01/tsn/code/tsn_files/miniagent-develop-bak/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+[Lark] [2026-11-01 19:31:51,966] [ERROR] connect failed, err: 1000040345: app_id or app_secret is invalid
+Traceback (most recent call last):
+  File "/data01/tsn/code/tsn_files/miniagent-develop/gateway/main.py", line 71, in <module>
+    main()
+  File "/data01/tsn/code/tsn_files/miniagent-develop/gateway/main.py", line 67, in main
+    channel.start()  # ws 阻塞
+    ^^^^^^^^^^^^^^^
+  File "/data01/tsn/code/tsn_files/miniagent-develop/gateway/channels/feishu.py", line 151, in start
+    ).start()
+      ^^^^^^^
+  File "/data01/tsn/code/tsn_files/miniagent-develop/.venv/lib/python3.11/site-packages/lark_oapi/ws/client.py", line 189, in start
+    raise e
+  File "/data01/tsn/code/tsn_files/miniagent-develop/.venv/lib/python3.11/site-packages/lark_oapi/ws/client.py", line 186, in start
+    loop.run_until_complete(self._connect())
+  File "/config/.local/share/uv/python/cpython-3.11.14-linux-x86_64-gnu/lib/python3.11/asyncio/base_events.py", line 654, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/data01/tsn/code/tsn_files/miniagent-develop/.venv/lib/python3.11/site-packages/lark_oapi/ws/client.py", line 218, in _connect
+    conn_url = build_connection_url(self._get_conn_url(), self._connection_host)
+                                    ^^^^^^^^^^^^^^^^^^^^
+  File "/data01/tsn/code/tsn_files/miniagent-develop/.venv/lib/python3.11/site-packages/lark_oapi/ws/client.py", line 303, in _get_conn_url
+    raise ClientException(resp.code, resp.msg)
+lark_oapi.ws.exception.ClientException: 1000040345: app_id or app_secret is invalid
+warning: `VIRTUAL_ENV=/data01/tsn/code/tsn_files/miniagent-develop-bak/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+(会话 oc_c0e658e76… user: 你好)
+(会话 oc_c0e658e76… user: 现在你用浏览器工具能走这个代理不？，你做了什么使得你的也走了那个代理，之前是不行的。)
+(会话 oc_c0e658e76… user: 现在你用浏览器工具能走这个代理不？，你做了什么使得你的也走了那个代理，之前是不行的)
+(会话 oc_c0e658e76… user: 你好)
+(会话 oc_c0e658e76… user: 你好)
+(会话 oc_c0e658e76… user: 去 miniagent 的浏览器启动点加 `--proxy-server=socks5://127.0.0.1:10808`，说一声就动手。这个你咋加，加在哪里)
+(会话 oc_c0e658e76… user: 加成env方式，如果不要是给他注释掉就可以嘛？)
+(会话 oc_c0e658e76… user: 你不是有重启工具吗，你的restart工具重启包含这个吧，还包含啥)
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+(会话 oc_c0e658e76… user: 你好)
+(会话 oc_c0e658e76… user: 那现在看看github一周热榜。)
+(会话 oc_c0e658e76… user: 刚才你用curl拿的？不是通过浏览器工具抓的嘛？你不是有browser工具吗)
+(会话 oc_c0e658e76… user: 噢噢，行吧。那个容器中的miniagent怎么用上我们这个环境的代理呢。注意，代理其实在一个容器中，另一个miniagent又在自己容器中)
+(会话 oc_c0e658e76… user: 1，要重启你运行的容器嘛？这个禁止重启删除等操作，不然你自己就崩了，这个记到记忆里。)
+(会话 oc_c0e658e76… user: 2，代理这个事是什么意思，还有你要开放100808端口有没有宿主机冲突？)
+(会话 oc_c0e658e76… user: 蹭代理是啥意思，怎么避免。)
+(会话 oc_c0e658e76… user: 那还是0.0.0.0方式吧，别人应该不知道怎么蹭上我的代理，后续我启其他容器，自己还得加上代理呢。开始实现，实现后，容器怎么挂上代理之类的写成一个skill。)
+(会话 oc_c0e658e76… user: 你好)
+(会话 oc_c0e658e76… user: 那个miniagent可执行命令你应该知道是咋弄的吧。有没有个一键部署脚本把他和uv sync做了（不包括docker）)
+(会话 oc_c0e658e76… user: 执行这个脚本可以装好命令和uv环境了呗？)
+(会话 oc_c0e658e76… user: 要做全局命令呀。现在有miniagent命令，你看下他咋做的)
+(会话 oc_c0e658e76… user: 提交到master和dev分支了？)
+(会话 oc_c0e658e76… user: 搜一下大肥鱼项目是啥)
+(会话 oc_c0e658e76… user: star最多的前三个)
+(会话 oc_c0e658e76… user: 你浏览器设置了可以翻墙，github克隆更新代码设置了嘛？)
+(会话 oc_c0e658e76… user: 怎么设置这个放到一个部署文档中。加上那个一键部署脚本的部署文档。)
+[Lark] [2026-11-02 09:21:28,675] [ERROR] receive message loop exit, err: sent 1011 (internal error) keepalive ping timeout; no close frame received [conn_id=7703168493207014592]
+[Lark] [2026-11-02 09:21:44,838] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 09:23:22,861] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 09:25:00,892] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+(会话 oc_c0e658e76… user: 调研一下deepseek harness，之前你下载到本地了，看下他的万物即插件思路。我们怎么把master分支的作为基座，dev分支的一些其他工作作为插件。不)
+[Lark] [2026-11-02 09:35:01,401] [ERROR] receive message loop exit, err: sent 1011 (internal error) keepalive ping timeout; no close frame received [conn_id=7703379368997604621]
+[Lark] [2026-11-02 09:35:34,330] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 09:37:12,363] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 09:38:50,397] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 09:47:50,936] [ERROR] receive message loop exit, err: sent 1011 (internal error) keepalive ping timeout; no close frame received [conn_id=7703382953116585254]
+[Lark] [2026-11-02 09:48:16,345] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 09:49:54,374] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 09:51:32,408] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 10:01:13,054] [ERROR] receive message loop exit, err: sent 1011 (internal error) keepalive ping timeout; no close frame received [conn_id=7703386246023466241]
+[Lark] [2026-11-02 10:01:28,670] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 10:03:06,700] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 10:04:44,734] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 10:15:29,322] [ERROR] receive message loop exit, err: sent 1011 (internal error) keepalive ping timeout; no close frame received [conn_id=7703389649734307000]
+[Lark] [2026-11-02 10:15:47,517] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 10:17:25,535] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 10:19:03,560] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 10:28:44,174] [ERROR] receive message loop exit, err: sent 1011 (internal error) keepalive ping timeout; no close frame received [conn_id=7703393329014164670]
+[Lark] [2026-11-02 10:29:15,291] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 10:30:53,307] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 10:32:31,323] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 10:42:52,013] [ERROR] receive message loop exit, err: sent 1011 (internal error) keepalive ping timeout; no close frame received [conn_id=7703396753534209279]
+[Lark] [2026-11-02 10:43:00,158] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 10:44:38,189] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 10:46:16,224] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 10:47:54,257] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 10:55:54,786] [ERROR] receive message loop exit, err: sent 1011 (internal error) keepalive ping timeout; no close frame received [conn_id=7703400741507894456]
+[Lark] [2026-11-02 10:56:21,336] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 10:57:59,354] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 10:59:37,385] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 11:13:38,117] [ERROR] receive message loop exit, err: sent 1011 (internal error) keepalive ping timeout; no close frame received [conn_id=7703403776979438847]
+[Lark] [2026-11-02 11:14:06,699] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 11:15:44,733] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 11:17:22,767] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 11:19:00,801] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 11:20:38,832] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-02 11:22:16,867] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+(收到信号 15, 等在跑的会话收尾…)
+(收到信号 15, 等在跑的会话收尾…)
+warning: `VIRTUAL_ENV=/data01/tsn/code/tsn_files/zany-agent/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+(收到信号 15, 等在跑的会话收尾…)(收到信号 15, 等在跑的会话收尾…)
+warning: `VIRTUAL_ENV=/data01/tsn/code/tsn_files/zany-agent/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+gateway up: workdir=/data01/tsn/code/tsn_files/miniagent-develop 白名单 1 人, 等待飞书消息…
+(收到信号 15, 等在跑的会话收尾…)(收到信号 15, 等在跑的会话收尾…)
+warning: `VIRTUAL_ENV=/data01/tsn/code/tsn_files/zany-agent/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+gateway up: workdir=/data01/tsn/code/tsn_files/zany-agent-develop 白名单 1 人, 等待飞书消息…
+(会话 oc_c0e658e76… user: 你好)
+(会话 oc_c0e658e76… user: 在嘛)
+(会话 oc_c0e658e76… 处理失败: {'type': 'error', 'error': {'type': 'internal_error', 'message': "2 validation errors for ChatCompletionStreamResponse\nmodel\n  Field required [type=missing, input_value={'error': {'message': 'En...am': None, 'code': 500}}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing\nchoices\n  Field required [type=missing, input_value={'error': {'message': 'En...am': None, 'code': 500}}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing"}})
+(会话 oc_c0e658e76… user: 在嘛)
+(会话 oc_c0e658e76… user: 在嘛)
+[Lark] [2026-11-03 20:26:46,919] [ERROR] receive message loop exit, err: sent 1011 (internal error) keepalive ping timeout; no close frame received [conn_id=7703469802518203674]
+[Lark] [2026-11-03 20:27:09,465] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+(会话 oc_c0e658e76… user: docker版，我想有个本地目录的远程仓库映射进去，与你的远程仓库不是一个。他改他的。然后docker里面也有两份代码，主备网关，各连一个飞书。他们能互相查看另)
+(会话 oc_c0e658e76… user: 挂载进容器的目录都放到一个目录下啊，别到处放。)
+(会话 oc_c0e658e76… user: 主备网关的数据路径咋映射的)
+(会话 oc_c0e658e76… user: 我要的不是两个容器，而且同一个容器里的，不然他们垮容器了怎么互相检查啊)
+(会话 oc_c0e658e76… user: 两份代码，在容器什么位置)
+(会话 oc_c0e658e76… user: 你好)
+(会话 oc_c0e658e76… user: /resume)
+(会话 oc_c0e658e76… user: 在嘛)
+(收到信号 15, 等在跑的会话收尾…)
+(收到信号 15, 等在跑的会话收尾…)
+warning: `VIRTUAL_ENV=/data01/tsn/code/tsn_files/zany-agent/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+gateway up: backend=codex workdir=/data01/tsn/code/tsn_files/zany-agent-develop 白名单 1 人, 等待飞书消息…
+(会话 oc_c0e658e76… user: /new)
+(会话 oc_c0e658e76… user: 你好，1+1)
+(codex 轮 oc_c0e658e76… thread=新)
+(会话 oc_c0e658e76… user: 刚才我说了啥)
+(codex 轮 oc_c0e658e76… thread=01a1a978-84d5-7203-91ec-fe069055b61c)
+(收到信号 15, 等在跑的会话收尾…)
+(收到信号 15, 等在跑的会话收尾…)
+warning: `VIRTUAL_ENV=/data01/tsn/code/tsn_files/zany-agent/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+gateway up: backend=codex workdir=/data01/tsn/code/tsn_files/zany-agent-develop 白名单 1 人, 等待飞书消息…
+(收到信号 15, 等在跑的会话收尾…)(收到信号 15, 等在跑的会话收尾…)
+warning: `VIRTUAL_ENV=/data01/tsn/code/tsn_files/zany-agent/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+gateway up: backend=zany workdir=/data01/tsn/code/tsn_files/zany-agent-develop 白名单 1 人, 等待飞书消息…
+[Lark] [2026-11-05 16:58:47,049] [ERROR] receive message loop exit, err: no close frame received or sent [conn_id=7704510216104332478]
+[Lark] [2026-11-05 20:01:18,678] [ERROR] receive message loop exit, err: sent 1011 (internal error) keepalive ping timeout; no close frame received [conn_id=7704609225031060752]
+[Lark] [2026-11-05 20:01:39,784] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-05 20:03:17,803] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-05 20:15:38,445] [ERROR] receive message loop exit, err: sent 1011 (internal error) keepalive ping timeout; no close frame received [conn_id=7704657130704276752]
+[Lark] [2026-11-05 20:16:09,828] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-05 20:17:47,847] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+[Lark] [2026-11-05 20:22:08,326] [ERROR] receive message loop exit, err: sent 1011 (internal error) keepalive ping timeout; no close frame received [conn_id=7704660866026818859]
+[Lark] [2026-11-05 20:22:36,703] [ERROR] connect failed, err: HTTPSConnectionPool(host='open.feishu.cn', port=443): Max retries exceeded with url: /callback/ws/endpoint (Caused by NameResolutionError("HTTPSConnection(host='open.feishu.cn', port=443): Failed to resolve 'open.feishu.cn' ([Errno -3] Temporary failure in name resolution)"))
+(会话 oc_c0e658e76… user: 1.调优方向
+o Reflexion
+。阿里Agent Scope配套的 OpenJudge
+2.评测方向
+。阿里的 Claw-Eval
+3.安全管控方向
+。腾)
+(会话 oc_c0e658e76… user: 你有用那个github的技能嘛？)
+(收到信号 15, 等在跑的会话收尾…)
+(收到信号 15, 等在跑的会话收尾…)
+warning: `VIRTUAL_ENV=/data01/tsn/code/tsn_files/zany-agent/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+gateway up: backend=zany workdir=/data01/tsn/code/tsn_files/zany-agent-develop 白名单 1 人, 等待飞书消息…
+(会话 oc_c0e658e76… user: 现在应该能加载这个技能了吧。)
+(收到信号 15, 等在跑的会话收尾…)(收到信号 15, 等在跑的会话收尾…)
+warning: `VIRTUAL_ENV=/data01/tsn/code/tsn_files/zany-agent/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+gateway up: backend=zany workdir=/data01/tsn/code/tsn_files/zany-agent-develop 白名单 1 人, 等待飞书消息…
+(会话 oc_c0e658e76… user: 远程仓库有提交同步一下代码。)
+(会话 oc_c0e658e76… user: 本地仓库里有些windows的适配提交，看一下)
+(会话 oc_c0e658e76… user: 什么意思，那些打断优化，去掉anthropic包的改动没有合入master和dev分支嘛。开了个新分支？)

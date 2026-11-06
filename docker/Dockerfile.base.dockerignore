@@ -1,0 +1,6 @@
+# base 层 context 瘦身: 只要浏览器 zip + 依赖清单(此文件优先于项目根 .dockerignore)
+*
+!assets
+!assets/chrome-headless-shell-linux64.zip
+!pyproject.toml
+!uv.lock

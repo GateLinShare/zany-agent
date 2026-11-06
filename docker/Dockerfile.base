@@ -1,0 +1,53 @@
+# zany 基础镜像: 系统包 + chromium 运行库 + 自带浏览器 + uv + 依赖 venv
+# 应用代码不在本层(见同目录 Dockerfile)。构建(context=项目根):
+#   docker build -f docker/Dockerfile.base -t zany-base:latest .
+# 仅在系统依赖/浏览器/锁文件变化时重建
+# stage1 只解压浏览器, 最终 stage 只拷解压结果, zip 不落入镜像层(省 121MB)
+FROM docker.1ms.run/library/python:3.12-slim-bookworm AS browser-unpack
+COPY assets/chrome-headless-shell-linux64.zip /tmp/browser.zip
+RUN python -m zipfile -e /tmp/browser.zip /tmp/chrome-extract && \
+    mkdir -p /pw/chromium_headless_shell-1228 && \
+    mv /tmp/chrome-extract/* /pw/chromium_headless_shell-1228/ && \
+    chmod +x /pw/chromium_headless_shell-1228/*/chrome-headless-shell && \
+    rm -rf /tmp/browser.zip /tmp/chrome-extract
+
+FROM docker.1ms.run/library/python:3.12-slim-bookworm
+
+# apt 换清华源(bookworm 两种源文件都试, 存在哪个换哪个) + 系统包
+# chromium 运行库 = hermes-space basev1 [7/11] 实测清单(chrome-headless-shell 够用)
+# 注意: RUN 续行内不能写 # 注释(反斜杠拼行会注释掉其后全部命令)
+RUN sed -i 's@deb.debian.org@mirrors.tuna.tsinghua.edu.cn@g' /etc/apt/sources.list 2>/dev/null; \
+    sed -i 's@deb.debian.org@mirrors.tuna.tsinghua.edu.cn@g' /etc/apt/sources.list.d/debian.sources 2>/dev/null; \
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        tini git curl unzip procps ca-certificates \
+        libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 \
+        libcups2 libgtk-3-0 libnspr4 libnss3 libudev1 \
+        libvulkan1 libxcomposite1 libxdamage1 xdg-utils \
+        libgbm1 libdrm2 libxkbcommon0 libxfixes3 libxrandr2 libasound2 && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# uv 二进制: 本地已有 ghcr.io/astral-sh/uv 镜像, 多阶段直拷零下载
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/bin/uv
+
+# 浏览器: 仓库自带 chrome-headless-shell zip(build 1228 <-> playwright 1.61.0), 构建期零下载
+# zip 顶层目录名(chrome-headless-shell-linux64)是 playwright 要求的子目录名, 不能改
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
+COPY --from=browser-unpack /pw /opt/pw-browsers
+
+# 依赖 venv 烧死在本层: 清华源 + 锁文件 --frozen, 应用层改码不触发重装
+# --no-install-project: 不装项目自身(源码在应用层, 平铺 layout 直接 python 跑)
+ENV UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple \
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    UV_HTTP_TIMEOUT=600
+COPY pyproject.toml uv.lock /tmp/deps/
+RUN cd /tmp/deps && \
+    uv sync --frozen --no-dev --extra feishu --no-install-project && \
+    rm -rf /tmp/deps /root/.cache/uv
+ENV PATH="/opt/venv/bin:${PATH}"
+
+# 非 root(uid 1000, 个人数据卷属主对齐); HOME 承载 ~/.zany 会话/技能
+RUN useradd -m -u 1000 user_zany
+ENV HOME=/home/user_zany \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1

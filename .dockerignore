@@ -1,0 +1,14 @@
+# 应用层 context 排除: 仅运行时垃圾与已烧进 base 的构建素材
+# .git / .env / docs / tests / skills / evals 等全部照拷(整个项目进镜像)
+.venv/
+.pw-browsers/
+__pycache__/
+**/__pycache__/
+*.pyc
+.zany*
+assets/chrome-headless-shell-linux64.zip
+gateway/.gateway.log
+gateway/.gateway.pid
+gateway/.seen_msgids
+gateway/channels/.seen_msgids
+gateway/cron_jobs.json
