@@ -12,6 +12,7 @@ jobs:
         include:
           - { os: ubuntu-22.04, target: linux-x64 }   # glibc 2.35 下限
           - { os: macos-14, target: darwin-arm64 }
+          - { os: windows-2022, target: win32-x64 }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

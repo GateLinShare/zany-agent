@@ -8,7 +8,8 @@
   "files": ["bin/", "env.example", "README.md"],
   "optionalDependencies": {
     "zany-agent-linux-x64": "0.1.0",
-    "zany-agent-darwin-arm64": "0.1.0"
+    "zany-agent-darwin-arm64": "0.1.0",
+    "zany-agent-win32-x64": "0.1.0"
   },
   "engines": { "node": ">=16" }
 }
