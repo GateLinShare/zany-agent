@@ -13,7 +13,7 @@ tui.py            UI 层:rich Live 流式渲染 / 会话恢复 / cron / 无头�
 eval/main.py      评测:evals/cases.jsonl 用例 → 临时目录跑 agent → 断言判分
 core/
   loop.py         ★ agent loop:聚合 → 派发工具 → 回填 → 循环(约110行)
-  model.py        模型薄封装:流式 SSE 转发 / 非流式补全(压缩用)
+  model.py        模型薄封装:裸 httpx 直调 /v1/messages + 手解 SSE(不引 anthropic SDK——导入重, Windows 冷启动 6s→0.4s; 流式转发/非流式补全(压缩用)不变)
   tools.py        Tool 统一形态 + 五内置工具(ls/read_file/write_file/edit_file/execute)
   goal.py         goal 模式:续跑投影 prompt + update_goal 工具(状态真身在 tui)
   subagent.py     task 子代理(递归在构造处掐死)

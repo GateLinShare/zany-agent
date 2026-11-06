@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "zany-agent: 无框架手写核心 (core/)"
 requires-python = ">=3.11,<4.0"
 dependencies = [
-    "anthropic>=0.40",
+    "httpx>=0.27",  # 裸 httpx 直调 /v1/messages, 不引 anthropic SDK(导入重: 拖 pydantic, Windows 上 6s+)
     "mcp>=2.0,<3.0",
     "croniter>=2.0",
     "textual>=1.0",

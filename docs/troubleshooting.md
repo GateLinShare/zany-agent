@@ -27,4 +27,16 @@
 
 **修复**（`tui.py` `ChatPrompt`）：非连击输入时清除被抑制的 enter 状态；抑制后把计时锚点续到当前时刻（连续粘贴空行不误提交）；`clear()` 时同步重置连击状态。参数不变（0.03s 连击判定 / 0.12s 抑制窗 / 窗口 0.08s）。
 
-**教训**：参照实现搬"最小子集"时，状态机的清理路径（负分支）和触发路径同样重要——只搬判定不搬清理，状态会跨回合泄漏。测试用确定性时间戳直接驱动内部状态（`tests/test_prompt.py`），比真实 sleep 稳。
+**教训**:参照实现搬"最小子集"时,状态机的清理路径(负分支)和触发路径同样重要--只搬判定不搬清理,状态会跨回合泄漏。测试用确定性时间戳直接驱动内部状态(`tests/test_prompt.py`),比真实 sleep 稳。
+
+## 2026-11 Windows 上 anthropic 导入 5-6s(启动慢)
+
+**现象**:Windows 侧 `zany` 启动慢;`uv run python -c "import anthropic"` 暖缓存也要 5.7-6.4s(py3.12 临时 venv 更慢:冷 26s / 暖 8s)。
+
+**排查**:`-X importtime` 拆解 -- self 时间全部极小(最大 0.1s),但 3175 个模块均摊 ~1.3ms/模块;对照组 stdlib `email` 同样 ~1.2ms/模块,C盘(uv python)与 D盘(venv)无差,排除 .pyc 未编译(`__pycache__` 存在且更新)、排除 Python 版本(3.12 反而更慢)、排除 anthropic 解析本身。
+
+**根因**:整机文件打开开销被安全软件过滤驱动放大(`fltmc filters` 实证):`Estdlock`(亿赛通)+ `UniProtect` + `SinovatioSpy`(中孚)三道钩子叠在每次 open/stat 上,Windows Defender 反而是关的。anthropic SDK 导入面大(3175 个自动生成的 types 模块)只是把这个成本显性化:3175 × 1.5ms ≈ 5s。企业管控机器,驱动层无解,也不能也不该绕。
+
+**缓解**(`core/model.py` + `agent.py`,工作区改动):`make_client()` 内做 anthropic 惰性导入,`ChatModel.client` 属性懒建,`import agent` 从 6s+ 降到 0.4s -- 启动不再付这笔税,成本拖到首条消息。`make_client` 签名去掉了 anthropic 返回注解(`from __future__ import annotations`),缺密钥 fail-fast 前移到 `ChatModel.__init__`。
+
+**教训**:子进程量导入耗时先看 returncode(`python -c "import anthropic"` 从 python 子进程里 spawn 会因 venv trampoline 解析到裸解释器而 ModuleNotFoundError,0.14s 全是假象);慢导入先按每模块均摊成本分层(stdlib vs site-packages vs 跨盘),一眼分清"模块多"还是"每个文件都慢"。

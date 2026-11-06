@@ -7,7 +7,7 @@ import core.skills as skills
 def test_bundled_skills_listed_with_abs_path(tmp_path, monkeypatch):
     bundled = tmp_path / "skills" / "demo"
     bundled.mkdir(parents=True)
-    (bundled / "SKILL.md").write_text("---\nname: demo\ndescription: 测试技能\n---\n正文")
+    (bundled / "SKILL.md").write_text("---\nname: demo\ndescription: 测试技能\n---\n正文", encoding="utf-8")  # Windows 默认 GBK, skills.py 按 utf-8 读
     monkeypatch.setattr(skills, "app_root", lambda: tmp_path)
     section = skills.skill_section(str(tmp_path / "nowhere"), sources=())
     assert "- demo: 测试技能" in section

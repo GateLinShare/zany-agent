@@ -137,91 +137,62 @@ class Agent:
             pending = {}         # tool_use 块的 partial_json 累积, block index -> str
             turn_in = turn_out = 0
             aborted = False
+
+            def _consume(ev: dict) -> list[tuple]:
+                """一个协议事件 dict → 聚合进 blocks/pending, 返回给 UI 的增量列表。
+                model 层裸 httpx 后, 事件就是 Anthropic SSE 的原始 JSON(单协议)。"""
+                nonlocal turn_in, turn_out
+                out = []
+                etype = ev.get("type")
+                if etype == "message_start":
+                    # 真实账本就在这两个事件里, hermes/dcode 都从这里记账
+                    u = (ev.get("message") or {}).get("usage") or {}
+                    turn_in = (u.get("input_tokens") or 0) + (u.get("cache_read_input_tokens") or 0) \
+                        + (u.get("cache_creation_input_tokens") or 0)
+                elif etype == "message_delta":
+                    u = ev.get("usage") or {}
+                    if u.get("output_tokens"):
+                        turn_out = u["output_tokens"]
+                elif etype == "content_block_start":
+                    b = ev.get("content_block") or {}
+                    blk = {"type": b.get("type")}
+                    if b.get("type") == "tool_use":
+                        blk.update(id=b["id"], name=b["name"], input={})
+                        pending[ev["index"]] = ""
+                    blocks.append(blk)
+                elif etype == "content_block_delta":
+                    d = ev.get("delta") or {}
+                    blk = blocks[ev["index"]]
+                    if d.get("type") == "text_delta":
+                        blk["text"] = blk.get("text", "") + d["text"]
+                        out.append(("text", d["text"]))
+                    elif d.get("type") == "thinking_delta":
+                        blk["thinking"] = blk.get("thinking", "") + d["thinking"]
+                        out.append(("thinking", d["thinking"]))
+                    elif d.get("type") == "signature_delta":
+                        blk["signature"] = d["signature"]
+                    elif d.get("type") == "input_json_delta":
+                        pending[ev["index"]] += d.get("partial_json", "")
+                elif etype == "content_block_stop":
+                    blk = blocks[ev["index"]]
+                    if blk["type"] == "tool_use":
+                        try:
+                            blk["input"] = json.loads(pending[ev["index"]] or "{}")
+                        except json.JSONDecodeError:
+                            blk["input"] = {}
+                return out
+
             try:
                 for ev in self.model.stream(self._system(), messages, self._schemas()):
                     if self._interrupt_requested:  # 检查点 b: 流中, SSE 事件间隙
                         aborted = True
                         break  # 不调"final 聚合"—— hermes 对部分消费的流也只取已收到部分
-                    etype = ev.type
-                    if etype == "message_start":
-                        # 真实账本就在这两个事件里, hermes/dcode 都从这里记账
-                        u = getattr(ev.message, "usage", None)
-                        if u:
-                            turn_in = (u.input_tokens or 0) + (getattr(u, "cache_read_input_tokens", 0) or 0) \
-                                + (getattr(u, "cache_creation_input_tokens", 0) or 0)
-                    elif etype == "message_delta":
-                        u = getattr(ev, "usage", None)
-                        if u and getattr(u, "output_tokens", 0):
-                            turn_out = u.output_tokens
-                    elif etype == "content_block_start":
-                        b = ev.content_block
-                        blk = {"type": b.type}
-                        if b.type == "tool_use":
-                            blk.update(id=b.id, name=b.name, input={})
-                            pending[ev.index] = ""
-                        blocks.append(blk)
-                    elif etype == "content_block_delta":
-                        d = ev.delta
-                        blk = blocks[ev.index]
-                        if d.type == "text_delta":
-                            blk["text"] = blk.get("text", "") + d.text
-                            yield ("text", d.text)
-                        elif d.type == "thinking_delta":
-                            blk["thinking"] = blk.get("thinking", "") + d.thinking
-                            yield ("thinking", d.thinking)
-                        elif d.type == "signature_delta":
-                            blk["signature"] = d.signature
-                        elif d.type == "input_json_delta":
-                            pending[ev.index] += d.partial_json
-                    elif etype == "content_block_stop":
-                        blk = blocks[ev.index]
-                        if blk["type"] == "tool_use":
-                            try:
-                                blk["input"] = json.loads(pending[ev.index] or "{}")
-                            except json.JSONDecodeError:
-                                blk["input"] = {}
+                    for out in _consume(ev):
+                        yield out
             except Exception:
                 if not self._interrupt_requested:
                     raise
                 aborted = True  # abort() 关流导致的读错误 = 打断本身, 走收尾
-                etype = ev.type
-                if etype == "message_start":
-                    # 真实账本就在这两个事件里, hermes/dcode 都从这里记账
-                    u = getattr(ev.message, "usage", None)
-                    if u:
-                        turn_in = (u.input_tokens or 0) + (getattr(u, "cache_read_input_tokens", 0) or 0) \
-                            + (getattr(u, "cache_creation_input_tokens", 0) or 0)
-                elif etype == "message_delta":
-                    u = getattr(ev, "usage", None)
-                    if u and getattr(u, "output_tokens", 0):
-                        turn_out = u.output_tokens
-                elif etype == "content_block_start":
-                    b = ev.content_block
-                    blk = {"type": b.type}
-                    if b.type == "tool_use":
-                        blk.update(id=b.id, name=b.name, input={})
-                        pending[ev.index] = ""
-                    blocks.append(blk)
-                elif etype == "content_block_delta":
-                    d = ev.delta
-                    blk = blocks[ev.index]
-                    if d.type == "text_delta":
-                        blk["text"] = blk.get("text", "") + d.text
-                        yield ("text", d.text)
-                    elif d.type == "thinking_delta":
-                        blk["thinking"] = blk.get("thinking", "") + d.thinking
-                        yield ("thinking", d.thinking)
-                    elif d.type == "signature_delta":
-                        blk["signature"] = d.signature
-                    elif d.type == "input_json_delta":
-                        pending[ev.index] += d.partial_json
-                elif etype == "content_block_stop":
-                    blk = blocks[ev.index]
-                    if blk["type"] == "tool_use":
-                        try:
-                            blk["input"] = json.loads(pending[ev.index] or "{}")
-                        except json.JSONDecodeError:
-                            blk["input"] = {}
             # 打断收尾(hermes close_interrupted_tool_sequence 的 Anthropic 版):
             # 丢未完成的 thinking 块(没有 signature, 原样回传会被 API 拒),
             # 保留 text/tool_use; 有 tool_use 就补 cancelled tool_result 保配对。

@@ -92,7 +92,7 @@ STYLE_PROMPT = SYSTEM_PROMPT + "\n\n" + prompt_packs()
 
 
 def build_agent(workdir: str, with_mcp: bool = True):
-    model = ChatModel(make_client(), os.environ["ANTHROPIC_MODEL"])
+    model = ChatModel(os.environ["ANTHROPIC_MODEL"])
     max_turns = int(os.environ.get("MAX_TURNS", "40"))  # 单轮工具轮数上限, 防打转烧钱
     tools = builtin_tools(workdir)
     tools += load_plugins(workdir)  # .env 的 ZANY_PLUGINS 选装能力插件(core/plugins/<name>.py)

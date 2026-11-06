@@ -19,14 +19,8 @@ from core.loop import Agent
 from core.tools import Tool, builtin_tools
 
 
-class NS:
-    def __init__(self, **kw):
-        self.__dict__.update(kw)
-
-
-class Ev(NS):
-    def __init__(self, type, **kw):  # SSE 事件: .type + 附加属性
-        super().__init__(type=type, **kw)
+def Ev(type, **kw):  # SSE 事件: 纯 dict(model 层裸 httpx 后, 协议事件就是 dict)
+    return {"type": type, **kw}
 
 
 class FakeModel:
@@ -45,17 +39,17 @@ class FakeModel:
 def tool_turn(*calls):
     """一条 assistant 消息含若干 tool_use 块的 SSE 事件剧本。"""
     evs = [Ev("message_start",
-              message=NS(usage=NS(input_tokens=10, cache_read_input_tokens=0,
-                                  cache_creation_input_tokens=0)))]
+              message={"usage": {"input_tokens": 10, "cache_read_input_tokens": 0,
+                                 "cache_creation_input_tokens": 0}})]
     for i, call in enumerate(calls):
         tid, name = call[0], call[1]
         evs.append(Ev("content_block_start", index=i,
-                      content_block=NS(type="tool_use", id=tid, name=name)))
+                      content_block={"type": "tool_use", "id": tid, "name": name}))
         if len(call) > 2:  # (id, name, input_json) 形式: 补参数增量
             evs.append(Ev("content_block_delta", index=i,
-                          delta=NS(type="input_json_delta", partial_json=call[2])))
+                          delta={"type": "input_json_delta", "partial_json": call[2]}))
         evs.append(Ev("content_block_stop", index=i))
-    evs.append(Ev("message_delta", usage=NS(output_tokens=5)))
+    evs.append(Ev("message_delta", usage={"output_tokens": 5}))
     return evs
 
 
@@ -107,6 +101,9 @@ def test_interrupt_discards_remaining_calls():
 
 
 def test_execute_killed_on_interrupt():
+    if sys.platform == "win32":  # ponytail: pgrep 是 Linux 命令, Windows 上无法验证进程组被杀
+        print("skip (pgrep 仅 Linux)")
+        return
     tmp = tempfile.mkdtemp()
     agent = Agent(FakeModel([tool_turn(("t1", "execute",
                                         '{"command": "sleep 300", "timeout": 1200}'))]),
@@ -143,12 +140,12 @@ def test_interrupt_reaches_subagent():
 
 def test_normal_turn_unaffected():
     turn = [Ev("message_start",
-               message=NS(usage=NS(input_tokens=10, cache_read_input_tokens=0,
-                                   cache_creation_input_tokens=0))),
-            Ev("content_block_start", index=0, content_block=NS(type="text")),
-            Ev("content_block_delta", index=0, delta=NS(type="text_delta", text="ok")),
+               message={"usage": {"input_tokens": 10, "cache_read_input_tokens": 0,
+                                  "cache_creation_input_tokens": 0}}),
+            Ev("content_block_start", index=0, content_block={"type": "text"}),
+            Ev("content_block_delta", index=0, delta={"type": "text_delta", "text": "ok"}),
             Ev("content_block_stop", index=0),
-            Ev("message_delta", usage=NS(output_tokens=2))]
+            Ev("message_delta", usage={"output_tokens": 2})]
     agent = Agent(FakeModel([turn]), "", [], tempfile.mkdtemp())
     msgs = [{"role": "user", "content": "hi"}]
     events = list(agent.stream(msgs))
