@@ -11,6 +11,10 @@ dependencies = [
     "socksio>=1.0.0",
 ]
 
+# dev 工具(pyinstaller 打包 / pytest 测试), uv sync 默认装 dev 组
+[dependency-groups]
+dev = ["pyinstaller>=6.10", "pytest>=8.0"]
+
 # 能力插件的重依赖走 extras, 基座默认不装(core/plugins/<name>.py 的 import 失败即降级为工具缺席)
 # UV_PIP_INDEX_URL 只管 uv pip;uv run/lock 解析走这里,否则连 pypi.org 会很慢
 [[tool.uv.index]]

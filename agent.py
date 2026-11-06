@@ -21,13 +21,19 @@
 import os
 from pathlib import Path
 
-# --- .env (项目目录下的模型配置) ---
-ENV_PATH = Path(__file__).resolve().parent / ".env"
-for line in ENV_PATH.read_text().splitlines():
-    line = line.strip()
-    if line and not line.startswith("#") and "=" in line:
-        key, _, value = line.partition("=")
-        os.environ.setdefault(key.strip(), value.strip())
+from core.frozen import IS_FROZEN, app_root, data_dir
+
+# --- .env (源码=项目目录, frozen=~/.zany/.env) ---
+ENV_PATH = data_dir() / ".env"
+if ENV_PATH.is_file():
+    for line in ENV_PATH.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, _, value = line.partition("=")
+            os.environ.setdefault(key.strip(), value.strip())
+elif not IS_FROZEN:
+    raise FileNotFoundError(f"缺 {ENV_PATH}: cp env.example .env 后填密钥")
+# frozen 无 .env 不崩: 环境变量可能外部已给, 缺密钥会在 model.py 明确报
 
 from core.loop import Agent, user_memory_path
 from core.mcp import load_mcp_tools
@@ -60,7 +66,7 @@ def prompt_packs() -> str:
     与 skills 的渐进披露不同, 人格/规则类文本必须每轮都在场, 不能等模型按需读。
     插 = 丢一个 md 文件进 styles/, 拔 = PROMPT_PACKS 里删名字。
     """
-    root = Path(__file__).resolve().parent / "styles"
+    root = app_root() / "styles"
     names = [n.strip() for n in os.environ.get("PROMPT_PACKS", "").split(",") if n.strip()]
     out = []
     for n in names:
