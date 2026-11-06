@@ -50,6 +50,7 @@ def run_checks(case: dict, workdir: Path, answer: str, n_tool_calls: int) -> lis
 
 
 def main() -> None:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # Windows GBK 控制台打印 ✓/✗ 崩
     pattern = sys.argv[1] if len(sys.argv) > 1 else ""
     cases = load_cases(pattern)
     if not cases:
