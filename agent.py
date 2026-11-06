@@ -19,14 +19,24 @@
 """
 
 import os
+import sys
 from pathlib import Path
+
+from core.frozen import IS_FROZEN, app_root, data_dir
+
+if IS_FROZEN:  # Windows 控制台默认 GBK, 遇 utf-8 字符 print 崩 → 错误降级为替换符
+    for _s in (sys.stdout, sys.stderr):
+        try:
+            _s.reconfigure(errors="replace")
+        except Exception:
+            pass
 
 from core.frozen import IS_FROZEN, app_root, data_dir
 
 # --- .env (源码=项目目录, frozen=~/.zany/.env) ---
 ENV_PATH = data_dir() / ".env"
 if ENV_PATH.is_file():
-    for line in ENV_PATH.read_text().splitlines():
+    for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if line and not line.startswith("#") and "=" in line:
             key, _, value = line.partition("=")
