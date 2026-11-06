@@ -8,3 +8,8 @@ assets/*.zip
 
 # 锁文件按机器重算, 不入库(2026-11-05 用户定)
 uv.lock
+
+# PyInstaller 产物
+build/
+dist/
+*.spec
