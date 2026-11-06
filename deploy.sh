@@ -2,6 +2,16 @@
 # zany 一键部署(非 docker): uv(缺则装) + uv sync + 浏览器内核 + 全局命令 zany
 # 用法: bash deploy.sh   (在 fresh clone 上即可跑, python/依赖均由 uv 管理)
 set -euo pipefail
+
+# Windows: Git Bash 里跑则转原生 deploy.cmd; WSL 会把环境装到 Linux 侧, 直接指路
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) exec cmd //c "$(cygpath -w "${0%.sh}.cmd")" ;;
+esac
+if uname -r | grep -qi microsoft; then
+  echo "WSL 检测到: 本脚本会装 Linux 侧环境; Windows 原生请用 deploy.cmd"
+  exit 1
+fi
+
 cd "$(dirname "$0")"
 REPO=$(pwd)
 
