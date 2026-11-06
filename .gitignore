@@ -13,3 +13,7 @@ uv.lock
 build/
 dist/
 *.spec
+ 
+# 本地草稿: 临时脚本(tmp/) 与 commit message 载体(GBK 乱码规避) 
+tmp/ 
+tmp-commit-msg.txt 
