@@ -19,7 +19,9 @@ from pathlib import Path
 
 from croniter import croniter
 
-CRON_FILE = Path(__file__).resolve().parent / "cron_jobs.json"
+from core.frozen import data_dir
+
+CRON_FILE = data_dir() / "cron_jobs.json"
 
 
 def load_tasks(path: Path = CRON_FILE) -> list:
