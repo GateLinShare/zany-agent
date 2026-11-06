@@ -26,7 +26,7 @@ def main():
     # 2. 项目目录: 清单列出, 路径相对 workdir(与 read_file 约定一致)
     md = mk_skill(tmp / "skills", "alpha", "项目技能")
     sec = skill_section(str(tmp), sources=("/skills",))
-    assert "- alpha: 项目技能(全文: /skills/alpha/SKILL.md)" in sec, sec
+    assert "- alpha: 项目技能(全文: skills/alpha/SKILL.md)" in sec, sec
 
     # 3. 全局目录(~ 展开): HOME 指到沙箱, 清单列真实绝对路径
     home = tmp / "home"
