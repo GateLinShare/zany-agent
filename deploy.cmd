@@ -35,17 +35,21 @@ if exist core\browser.py (
   echo [browser] 本分支无浏览器模块, 跳过内核安装
 )
 
-rem [3/3] 全局命令: 代码路径钉死本 checkout, 调用时的 cwd 即 agent 工作目录。
+rem [3/3] 全局命令: console-script exe(非 .cmd 批处理!)。cwd 即 agent 工作目录。
+rem .cmd 会被 cmd 批处理层截获 ctrl+c 弹 "Terminate batch job (Y/N)?", exe 让 ctrl+c 直达进程;
+rem uv trampoline 内嵌 venv python 绝对路径, 拷去任意 PATH 目录均可跑。
 rem master 装 zany; develop 装 zany-dev(避免覆盖全局 zany 到 develop 代码)
 set "CMD=zany"
 for /f "delims=" %%b in ('git branch --show-current') do if /i "%%b"=="develop" set "CMD=zany-dev"
 set "BIN=%USERPROFILE%\.local\bin"
 if not exist "%BIN%" mkdir "%BIN%"
-> "%BIN%\%CMD%.cmd" echo @echo off
->>"%BIN%\%CMD%.cmd" echo rem zany coding agent: cwd 即 agent 工作目录^(AGENTS.md/文件工具/execute 全锚定它^)
->>"%BIN%\%CMD%.cmd" echo set "VIRTUAL_ENV="
->>"%BIN%\%CMD%.cmd" echo uv run --project "%REPO%" python "%REPO%\tui.py" %%*
-echo [3/3] 全局命令: %BIN%\%CMD%.cmd
+if not exist ".venv\Scripts\zany.exe" (
+  echo [!] 未生成 .venv\Scripts\zany.exe, 检查 pyproject 的 [project.scripts] 后重跑 uv sync
+  exit /b 1
+)
+copy /y ".venv\Scripts\zany.exe" "%BIN%\%CMD%.exe" >nul
+del "%BIN%\%CMD%.cmd" 2>nul
+echo [3/3] 全局命令: %BIN%\%CMD%.exe
 
 echo.
 echo 部署完成。用法(任意目录):

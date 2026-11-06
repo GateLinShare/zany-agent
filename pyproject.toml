@@ -3,6 +3,7 @@ name = "zany-agent"
 version = "0.1.0"
 description = "zany-agent: 无框架手写核心 (core/)"
 requires-python = ">=3.11,<4.0"
+
 dependencies = [
     "httpx>=0.27",  # 裸 httpx 直调 /v1/messages, 不引 anthropic SDK(导入重: 拖 pydantic, Windows 上 6s+)
     "mcp>=2.0,<3.0",
@@ -14,6 +15,19 @@ dependencies = [
 # dev 工具(pyinstaller 打包 / pytest 测试), uv sync 默认装 dev 组
 [dependency-groups]
 dev = ["pyinstaller>=6.10", "pytest>=8.0"]
+
+# console-script: uv sync 后 .venv\Scripts\zany.exe, deploy 拷去 PATH 即全局命令。
+# 必须是 exe 而非 .cmd 批处理 shim: .cmd 会截获 ctrl+c 弹 "Terminate batch job (Y/N)?",
+# exe 让 ctrl+c 直达进程(TUI 的打断/退出才收得到)
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project.scripts]
+zany = "tui:main"
+
+[tool.hatch.build.targets.wheel]
+only-include = ["tui.py", "core"]
 
 # 能力插件的重依赖走 extras, 基座默认不装(core/plugins/<name>.py 的 import 失败即降级为工具缺席)
 # UV_PIP_INDEX_URL 只管 uv pip;uv run/lock 解析走这里,否则连 pypi.org 会很慢

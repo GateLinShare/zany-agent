@@ -953,6 +953,18 @@ def main() -> None:
     ]
     ChatApp._merged_bindings = ChatApp._merge_bindings()
     app = ChatApp(resume_id, keybinding_issues=kb_issues)
+
+    # Windows 合成终端(PyCharm 等)把 ctrl+c 做成 CTRL_C_EVENT(SIGINT) 而非控制台按键:
+    # 真控制台 Textual 清了 ENABLE_PROCESSED_INPUT 自己收 \x03 走上面的绑定;
+    # PyCharm 这类终端绕过按键层, 默认行为是 KeyboardInterrupt 整个退出(不是打断当前轮)。
+    # 兜底: SIGINT 转投同一个 action_interrupt 状态机(一次打断轮/二次退出), 与键绑定同语义。
+    def _sigint_to_interrupt(signum, frame):
+        try:
+            app.call_later(app.action_interrupt)  # call_later→post_message 跨线程安全
+        except Exception:
+            pass  # app 已收摊, 无处可投
+    signal.signal(signal.SIGINT, _sigint_to_interrupt)
+
     try:
         app.run()
     except KeyboardInterrupt:  # Textual 没接住的 ^C(启动中/空闲期), 直接退
