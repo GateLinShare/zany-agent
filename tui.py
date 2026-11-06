@@ -30,7 +30,7 @@ from textual.widgets import OptionList, RichLog, Static, TextArea
 from textual.widgets.option_list import Option
 
 from agent import build_agent, text_of
-from core.messages import user_content, est_tokens
+from core.messages import user_content, est_tokens, result_text
 from core.mcp import config_stamp
 from core.sessions import (
     list_sessions,
