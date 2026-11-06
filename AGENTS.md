@@ -52,6 +52,17 @@ develop 分支的独立工作目录在 `/data01/tsn/code/tsn_files/zany-agent-de
 `tsn_files/zany-agent`）：push 完要去那边 `git pull --ff-only` 同步到最新。
 **feishu gateway（gateway/ 目录 + docs/feishu-integration.md）只在 develop 实现，master 不加这些功能**（用户 2026-10-31 定）。
 
+分支文件归属（2026-11-06 develop 重建后定，防两分支漂移）：
+- 共享核心（core/ tui.py agent.py eval/ tests/ pyproject.toml docs/architecture.md）
+  **只在 master 改**，develop 靠 merge 拿 —— 在 develop checkout 里改共享文件 = 错误方向；
+- develop 独有（gateway/ core/plugins/ docker/ docs/feishu-integration.md
+  docs/codex-backend.md docs/multi-agent.md install_browser.sh .dockerignore）master 不收，
+  merge 时自动保留；
+- develop 开工前检查：`git fetch origin && git log HEAD..origin/master --oneline`
+  非空则先 merge origin/master 再干活（2026-11-06 事故根因：master 推进没及时 merge 进
+  develop，叠加 filter-branch 单侧重写 → unrelated histories，develop 被迫重建）；
+- filter-branch/历史重写类操作必须 master+develop 两分支同做同推，否则禁止。
+
 常用命令：
 
 ```bash
