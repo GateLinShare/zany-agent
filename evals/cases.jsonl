@@ -1,4 +1,4 @@
-{"name": "smoke-read", "seed": {"/todo.md": "买牛奶\n写周报\n跑步\n"}, "query": "读 /todo.md, 告诉我第 2 行是什么, 只回答内容。", "checks": {"answer_contains": ["写周报"], "max_steps": 3}}
-{"name": "smoke-write", "seed": {}, "query": "在 /out.txt 写入内容 hello-eval。写完确认即可, 不要解释。", "checks": {"file_exists": ["/out.txt"], "file_contains": {"/out.txt": ["hello-eval"]}}}
-{"name": "smoke-edit", "seed": {"/config.ini": "mode=dev\n"}, "query": "把 /config.ini 里的 mode=dev 改成 mode=prod, 用编辑工具, 不要整文件重写。", "checks": {"file_contains": {"/config.ini": ["mode=prod"]}}}
-{"name": "tool-bash", "seed": {"/code.py": "a = 1\nb = 2\nc = 3\nd = 4\ne = 5\nf = 6\ng = 7\n"}, "query": "用 shell 统计工作目录下 code.py 的行数, 再用文件工具把数字单独写入 /count.txt(只写数字)。", "checks": {"file_exists": ["/count.txt"], "file_contains": {"/count.txt": ["7"]}, "max_steps": 4}}
+{"name": "smoke-read", "seed": {"/todo.md": "买牛奶\n写周报\n跑步\n"}, "query": "读 todo.md, 告诉我第 2 行是什么, 只回答内容。", "checks": {"answer_contains": ["写周报"], "max_steps": 3}}
+{"name": "smoke-write", "seed": {}, "query": "在 out.txt 写入内容 hello-eval。写完确认即可, 不要解释。", "checks": {"file_exists": ["/out.txt"], "file_contains": {"/out.txt": ["hello-eval"]}}}
+{"name": "smoke-edit", "seed": {"/config.ini": "mode=dev\n"}, "query": "把 config.ini 里的 mode=dev 改成 mode=prod, 用编辑工具, 不要整文件重写。", "checks": {"file_contains": {"/config.ini": ["mode=prod"]}}}
+{"name": "tool-bash", "seed": {"/code.py": "a = 1\nb = 2\nc = 3\nd = 4\ne = 5\nf = 6\ng = 7\n"}, "query": "用 shell 统计工作目录下 code.py 的行数, 再用文件工具把数字单独写入 count.txt(只写数字)。", "checks": {"file_exists": ["/count.txt"], "file_contains": {"/count.txt": ["7"]}, "max_steps": 4}}
