@@ -40,3 +40,16 @@
 **缓解**(`core/model.py` + `agent.py`,工作区改动):`make_client()` 内做 anthropic 惰性导入,`ChatModel.client` 属性懒建,`import agent` 从 6s+ 降到 0.4s -- 启动不再付这笔税,成本拖到首条消息。`make_client` 签名去掉了 anthropic 返回注解(`from __future__ import annotations`),缺密钥 fail-fast 前移到 `ChatModel.__init__`。
 
 **教训**:子进程量导入耗时先看 returncode(`python -c "import anthropic"` 从 python 子进程里 spawn 会因 venv trampoline 解析到裸解释器而 ModuleNotFoundError,0.14s 全是假象);慢导入先按每模块均摊成本分层(stdlib vs site-packages vs 跨盘),一眼分清"模块多"还是"每个文件都慢"。
+
+
+## Windows PyCharm 终端 ctrl+c 不打断、弹 Terminate batch job (Y/N)?（2026-11-06）
+
+**现象**: PyCharm 终端(合成 conpty)里 TUI 按 ctrl+c, 不是打断当前轮, 而是整个应用退出, 且 cmd 层弹 `Terminate batch job (Y/N)?`; Linux / 真 Windows 控制台正常。
+
+**根因两层**:
+1. PyCharm 终端把 ctrl+c 合成 CTRL_C_EVENT(SIGINT) 而非控制台按键事件。真控制台里 Textual 的 `enable_application_mode()` 把输入模式设成纯 ENABLE_VIRTUAL_TERMINAL_INPUT(清掉 ENABLE_PROCESSED_INPUT), ctrl+c 以 \x03 按键进 XTermParser → 走 TUI 的 ctrl+c 绑定(打断状态机); PyCharm 绕过按键层, python 直接收 KeyboardInterrupt → `tui.py main()` 的 except 分支整退。Linux 终端 raw 模式(ISIG off)同样是按键路径, 所以正常。
+2. 全局 `zany` 命令是 .cmd 批处理 shim: 批处理运行期间任何 ctrl+c 都被 cmd.exe 截获, 先弹 Terminate batch job (Y/N)?, 应用层打断语义被搅乱。Linux 的 bash shim 是 exec(进程替换), 无中间层。
+
+**修复**(两层独立, 都要): ① `tui.py main()` TUI 分支装 SIGINT 处理器 → `app.call_later(app.action_interrupt)` 转投同一个打断状态机(call_later→post_message 跨线程安全; 真控制台下无 SIGINT 不会双触发); ② 全局命令换成真 exe: pyproject 加 [build-system] hatchling + [project.scripts] `zany = "tui:main"`, uv sync 生成 .venv\Scripts\zany.exe(uv trampoline 内嵌 venv python 绝对路径, 拷去任意 PATH 目录可跑), deploy.cmd [3/3] 改为 copy exe + del 旧 .cmd。
+
+**教训**: 排查 Windows 交互问题先分清 "按键事件" 与 "console 控制事件" 两条路(conpty 合成终端会改写 ctrl+c 的走向); Windows 上给交互式 CLI 做启动 shim 永远别用 .cmd 批处理, 用 console-script exe。
