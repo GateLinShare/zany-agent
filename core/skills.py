@@ -11,6 +11,8 @@ frontmatter 用行解析,不引 yaml 依赖(只认 name/description 两个键,�
 
 from pathlib import Path
 
+from core.frozen import app_root
+
 
 def _frontmatter(text: str) -> dict:
     if not text.startswith("---"):
@@ -28,9 +30,11 @@ def _frontmatter(text: str) -> dict:
 
 
 def _root(src: str, workdir: str) -> Path:
-    """source → 目录:~ 开头按绝对路径展开;其余(含 "/skills" 这种写法)挂 workdir —— 既有约定。"""
+    """source → 目录:~ 与绝对路径按字面展开(内置技能/全局共享池), 其余挂 workdir —— 既有约定。"""
     if src.startswith("~"):
         return Path(src).expanduser()
+    if Path(src).is_absolute():
+        return Path(src)
     return Path(workdir) / src.lstrip("/")
 
 
@@ -39,6 +43,9 @@ def skill_section(
     sources: tuple = ("/skills", "/.claude/skills", "/.agents/skills", "~/.zany/skills"),
 ) -> str:
     """返回 system prompt 的 skills 段;没有 skill 目录就返回空串。同名技能先到先得。"""
+    bundled = app_root() / "skills"
+    if bundled.is_dir() and str(bundled) not in sources:
+        sources = (*sources, str(bundled))  # 内置技能排最后: 项目/全局同名先到先得
     items, seen = [], set()
     for src in sources:
         root = _root(src, workdir)
@@ -70,8 +77,8 @@ def skill_md_read(p: Path) -> str:
 
 
 def skill_md_path(src: str, p: Path) -> str:
-    """read_file 可用的路径:~ 开头的 source 用真实绝对路径, 其余相对 workdir ——
+    """read_file 可用的路径: 非项目内挂载(~、绝对路径)用真实绝对路径, 其余相对 workdir ——
     不能带前导斜杠: 工具层约定绝对路径按真实文件系统字面解析, 带斜杠必 404。"""
-    if src.startswith("~"):
+    if src.startswith("~") or Path(src).is_absolute():
         return str(p)
     return f"{src.lstrip('/')}/{p.parent.name}/SKILL.md"
