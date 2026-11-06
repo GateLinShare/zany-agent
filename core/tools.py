@@ -13,6 +13,7 @@
   上下文压缩后由 loop.reset_tool_ledger() 清空(旧 read 结果可能已被摘要掉)
 """
 
+import base64
 import contextlib
 import os
 import signal
@@ -23,9 +24,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from .messages import MEDIA_TYPES
+
 MAX_OUTPUT = 200000  # 单个工具结果上限(字符), 超长截断 —— 上下文第一层防线
 EXEC_TIMEOUT = 1200  # execute 默认超时(秒)
 LS_MAX = 500         # ls 单次列出的条目上限
+IMAGE_MAX = 4 * 1024 * 1024  # 图片上限(字节): Anthropic API 单图 5MB, 留余量
 
 
 @dataclass
@@ -35,7 +39,7 @@ class Tool:
     name: str
     description: str
     input_schema: dict
-    run: Callable[[dict], str]  # 入参 dict -> 结果文本(错误也返回文本, 不抛异常)
+    run: Callable[[dict], "str | list"]  # 入参 dict -> 结果文本(或 read_file 图片分支返回 block 数组); 错误也返回文本, 不抛异常
     ledger: Any | None = None   # 行为熔断账本(仅内置工具); loop 在压缩后调 reset()
     kill: Callable[[], None] | None = None  # 打断废弃时的强杀钩子(execute: 杀进程组)
 
@@ -119,8 +123,23 @@ def _ls(workdir, args) -> str:
     return "\n".join(lines) or "(空目录)"
 
 
-def _read(workdir, args, ledger) -> str:
+def _read(workdir, args, ledger):
     f = _resolve(workdir, args["path"])
+    if f.suffix.lower() in MEDIA_TYPES:  # 图片: 不按行分页, 转 image block 回给模型
+        try:
+            data = f.read_bytes()
+        except OSError as e:
+            return f"错误: 读不到图片 {args['path']}: {e}"
+        if len(data) > IMAGE_MAX:
+            return (f"错误: 图片 {len(data) / 1048576:.1f}MB 超过上限 4MB"
+                    "(API 限制); 让用户压缩/转格式后重试")
+        mt = MEDIA_TYPES[f.suffix.lower()]
+        return [
+            {"type": "image", "source": {
+                "type": "base64", "media_type": mt,
+                "data": base64.b64encode(data).decode()}},
+            {"type": "text", "text": f"已读取图片 {args['path']} ({mt}, {len(data) / 1024:.0f}KB)"},
+        ]
     offset, limit = int(args.get("offset", 0)), int(args.get("limit", 100))
     lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
     if ledger.seen_read(str(f), offset, limit):
@@ -346,6 +365,8 @@ def builtin_tools(workdir: str) -> list[Tool]:
              {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
              lambda a: _ls(workdir, a), ledger=ledger),
         Tool("read_file", "读文件, 默认前 100 行; 大文件用 offset/limit 分页。"
+             "图片文件(png/jpg/jpeg/gif/webp)自动转图像内容直接看, 不走文本分页, "
+             "单张上限 4MB。"
              "path 相对工作目录解析, 绝对路径按真实文件系统。",
              {"type": "object", "properties": {
                  "path": {"type": "string"}, "offset": {"type": "integer"}, "limit": {"type": "integer"}},

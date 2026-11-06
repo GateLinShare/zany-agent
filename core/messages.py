@@ -14,8 +14,9 @@ from pathlib import Path
 
 _IMG_REF = re.compile(r"\[图片:\s*(.+?)\s*\]")
 
-_MEDIA = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-          ".gif": "image/gif", ".webp": "image/webp"}
+# 图片扩展名 -> media_type(read_file 图片分支与用户消息贴图共用)
+MEDIA_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+               ".gif": "image/gif", ".webp": "image/webp"}
 
 
 def user(text: str) -> dict:
@@ -36,7 +37,7 @@ def user_content(text: str) -> str | list:
             data = Path(path).read_bytes()
             blocks.append({"type": "image", "source": {
                 # ponytail: 按扩展名定 media_type(飞书 jpg 照片标 png 会被 API 拒)
-                "type": "base64", "media_type": _MEDIA.get(Path(path).suffix.lower(), "image/png"),
+                "type": "base64", "media_type": MEDIA_TYPES.get(Path(path).suffix.lower(), "image/png"),
                 "data": base64.b64encode(data).decode()}})
         except OSError:
             blocks.append({"type": "text", "text": f"(图片读取失败: {path})"})
@@ -52,6 +53,12 @@ def text_of(message: dict) -> str:
     if isinstance(c, str):
         return c
     return "".join(b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text")
+
+
+def result_text(out) -> str:
+    """tool_result 结果的 UI 显示文本: str 原样; block 数组拼 text 块(image 块跳过,
+    由 _read 附带的说明 text 承担显示)。loop 的 yield 事件与会话回放都走这里。"""
+    return text_of({"content": out})
 
 
 def tool_uses(message: dict) -> list[dict]:

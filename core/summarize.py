@@ -134,5 +134,7 @@ def _flat(blocks: list) -> str:
         elif t == "tool_use":
             parts.append(f"(调用工具 {b.get('name')})")
         elif t == "tool_result":
-            parts.append(f"(工具结果) {str(b.get('content', ''))[:500]}")
+            c = b.get("content", "")
+            body = _flat(c) if isinstance(c, list) else str(c)[:500]
+            parts.append(f"(工具结果) {body[:500]}")
     return "\n".join(parts)
