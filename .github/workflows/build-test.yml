@@ -1,0 +1,29 @@
+name: build-test
+on:
+  workflow_dispatch:
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - { os: ubuntu-22.04, target: linux-x64, sep: ":", exe: "" }
+          - { os: macos-14, target: darwin-arm64, sep: ":", exe: "" }
+          - { os: windows-2022, target: win32-x64, sep: ";", exe: ".exe" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - shell: bash
+        run: |
+          # 只构建不发 npm: 产物进 artifact 供下载验证(--add-data 分隔符 windows 用分号)
+          uv run pyinstaller --onefile --name zany \
+            --collect-all textual --collect-all croniter \
+            --add-data "styles${{ matrix.sep }}styles" --add-data "skills${{ matrix.sep }}skills" \
+            tui.py
+          mkdir -p out
+          cp dist/zany${{ matrix.exe }} out/zany-${{ matrix.target }}${{ matrix.exe }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zany-${{ matrix.target }}
+          path: out/
