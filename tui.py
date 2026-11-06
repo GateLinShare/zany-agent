@@ -14,6 +14,7 @@ import json
 import os
 import queue
 import re
+import signal
 import sys
 import time
 from pathlib import Path
@@ -539,6 +540,11 @@ class ChatApp(App):
         """ctrl+c 状态机(Claude 同款 pending+计时): 窗口内二击退出;
         否则 busy 首击打断(必发一条即时提示), 空闲首击只置 pending。"""
         now = time.monotonic()
+        # conpty 合成终端(PyCharm)同一次 ctrl+c 双投递: 按键事件 + CTRL_C_EVENT 各到一次,
+        # 两条路都汇到本方法 → 一击被算两击(重复提示/吃掉退出窗口)。100ms 内去重。
+        if now - getattr(self, "_last_interrupt_at", 0.0) < 0.1:
+            return
+        self._last_interrupt_at = now
         if self._exit_pending and now - self._exit_pending <= EXIT_WINDOW:
             self.exit()
             return
