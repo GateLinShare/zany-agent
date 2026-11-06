@@ -63,7 +63,8 @@ def skill_md_read(p: Path) -> str:
 
 
 def skill_md_path(src: str, p: Path) -> str:
-    """read_file 可用的路径:~ 开头的 source 用真实绝对路径, 其余相对 workdir。"""
+    """read_file 可用的路径:~ 开头的 source 用真实绝对路径, 其余相对 workdir ——
+    不能带前导斜杠: 工具层约定绝对路径按真实文件系统字面解析, 带斜杠必 404。"""
     if src.startswith("~"):
         return str(p)
-    return f"{src}/{p.parent.name}/SKILL.md"
+    return f"{src.lstrip('/')}/{p.parent.name}/SKILL.md"
