@@ -55,3 +55,13 @@
 **教训**: 排查 Windows 交互问题先分清 "按键事件" 与 "console 控制事件" 两条路(conpty 合成终端会改写 ctrl+c 的走向); Windows 上给交互式 CLI 做启动 shim 永远别用 .cmd 批处理, 用 console-script exe。
 
 **补记(同日)**: PyCharm 实测同一次 ctrl+c 会**双投递**(按键事件 + CTRL_C_EVENT 都到), 一击被算两击(提示行重复/吃掉退出窗口)——上面"两路互斥"的判断不对。修法: action_interrupt 顶部 100ms 同击去重, 两条路都汇到它, 去重一处即可。
+
+## 2026-11-09 tui2 忙时主循环冻结, 回复要按一下 ctrl+c 才显示（tui2）
+
+**现象**: PowerShell 里 tui2 发消息后 spinner 冻在 0s, 模型实际已回复(worker 线程正常跑完, 会话也落盘了), 输出全排在队列里; 按一下 ctrl+c 才全部刷出来。无头模式(-p)同机正常, 模型端点(httpx 流式/curl)也正常 —— 问题锁在交互主循环。
+
+**根因**: 主循环忙时唯一的长阻塞点是 `Term.read_key` 的 Windows 实现。原逻辑 `kbhit() 为 true → getwch()`, 但 `msvcrt.getwch()` 遇到 FOCUS/MOUSE 等非按键输入记录时会把记录吞掉后在 ReadConsoleInput 上**无限阻塞**等待真按键(WriteConsoleInput 注入 FOCUS/MOUSE 记录实测复现: getwch 永不返回)。kbhit 对非键记录的语义随 UCRT 版本/终端而变, 误报 true 时主循环就冻结在 getwch 里 —— spinner 不再重绘、队列不排水, 直到用户按任意真键(ctrl+c)才解锁, 排队输出一次性刷出。
+
+**修复**(`tui2.py`, 两层): ① `_win_setup` 输入模式在原基础上再清 ENABLE_WINDOW_INPUT/ENABLE_MOUSE_INPUT(0x8/0x10), 从源头不生成非键记录; ② 新增 `_win_key_ready()`: PeekConsoleInputW 只认头部 KEY_EVENT(bKeyDown), 非键记录顺手 ReadConsoleInput 丢弃, 读键循环用它替代 `msvcrt.kbhit()` —— getwch 只在确认有真键时才调, 两种 kbhit 语义下都不会再阻塞。
+
+**教训**: msvcrt.kbhit/getwch 这对搭档对"缓冲里有记录"和"有可读按键"不是一回事, 合成终端(conpty/PyCharm)还会额外注入 FOCUS 等记录; Windows 手写读键要么走 Peek 自验, 要么把 mouse/window 输入模式关干净, 不能只信 kbhit。另: 在共享控制台里注入按键做实验不可靠(有别的读取者抢记录, 会凭空多出/丢字符), 键路径验证以真实终端为准。
