@@ -387,6 +387,7 @@ class Editor:
     def insert(self, s: str) -> None:
         if not s:
             return
+        s = s.replace("\r\n", "\n").replace("\r", "\n")  # 粘帖含 \r 的行尾归一
         self._snap()
         parts = s.split("\n")
         for i, part in enumerate(parts):
@@ -513,6 +514,7 @@ class ZanyTui:
         self.hist_idx = -1
         self.hist_draft = ""
         self._frame_rows = 0
+        self._park_down = 0  # 光标定位进输入框后, 回到帧底空行需下移的行数(擦帧凭它归位)
         self._dirty = True
         self._turn_t0 = None
         self._verb = 0
@@ -528,7 +530,7 @@ class ZanyTui:
     # ---- 启动/收摊 ----
     def start(self) -> None:
         self.term.setup()
-        self.console.print("[bold]✻ Welcome to zany[/] [dim](claude 式 TUI)[/]")
+        self.console.print("[bold]✻ Welcome to zany[/]")
         self.console.print(f"[dim]  工作目录: {self.workdir} · tools: {', '.join(self.agent.tools)}[/]")
         self.console.print("[dim]  /new 新对话 · /resume 恢复 · /goal 持续目标 · ctrl+c 打断/退出 · ctrl+z 撤销输入[/]\n")
         if self.resume_id is not None:
@@ -571,8 +573,11 @@ class ZanyTui:
     # ---- 烙定区打印(仅主循环调用; 打印前擦掉活动区) ----
     def _erase_frame(self) -> None:
         if self.term.vt and self._frame_rows:
-            self.term.write(f"{ESC}[{self._frame_rows}A{ESC}[J")
+            # 光标可能停在上帧定位的输入行内: 先下移回帧底(用记录值, 不依赖当前 ed 状态),
+            # 再上移帧高擦除。直接 ESC[{R}A 会从输入行起算 → 每次重绘净上浮一行(啃掉烙定区)。
+            self.term.write(f"{ESC}[{self._park_down}B\r{ESC}[{self._frame_rows}A{ESC}[J")
         self._frame_rows = 0
+        self._park_down = 0
 
     def log_write(self, text: str) -> None:
         self._erase_frame()
@@ -654,6 +659,7 @@ class ZanyTui:
             up = len(self.ed.lines) + 2 - self.ed.cy  # 帧尾写完带 \n(光标在框下一空行): 框底边+工具条隔 2 行到输入行
             col = 4 + cells(self.ed.lines[self.ed.cy][:self.ed.cx])
             self.term.write(f"{ESC}[{up}A{ESC}[{col + 1}G")
+            self._park_down = up  # 下次擦帧先原路下移回来, 防重绘整体上浮
 
     # ---- 键处理 ----
     def _on_key(self, key: str) -> None:
@@ -691,6 +697,10 @@ class ZanyTui:
             self._dirty = True
             return
         if key in ("\r", "\n"):  # \n 兼底: 没关掉 ICRNL 的环境 Enter 会变 \n
+            if self.ed.lines[self.ed.cy].endswith("\\"):
+                self.ed.handle("\r")  # 行尾反斜杠 = 软换行(claude 同款), 不提交
+                self._dirty = True
+                return
             t = self.ed.text().strip()
             self.ed.clear()
             self.hist_idx = -1
