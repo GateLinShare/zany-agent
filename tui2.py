@@ -114,7 +114,7 @@ def tool_line(name: str, args: dict, dur: float, output: str) -> str:
         detail = ("..." + p[-32:]) if len(p) > 35 else p
     err = output.startswith("错误:")
     detail = f"[red]{escape(detail)}[/red]" if err else escape(detail)
-    fail = "[red]✗ 失败[/red]" if err else ""
+    fail = "[red]× 失败[/red]" if err else ""  # × 而非 ✗: 同 ❯/✻, dingbat 区无字形
     durs = f"  [dim]{dur:.1f}s[/dim]" if dur else ""
     return f"[dim]┊[/] {emoji} {verb:<9} {detail}{durs}{fail}"
 
@@ -165,7 +165,7 @@ def _turn_renderable(think: str, body: str, fold: bool = False, md: bool = True)
 # Windows: msvcrt.getwch + SetConsoleMode 清 ENABLE_PROCESSED_INPUT + 开 stdout VT。
 # VT 开不出来(老 conhost)→ 退行式(烙定区照常, 活动区关)。
 ESC = "\x1b"
-_SPINNER_FRAMES = "✻✽✶✳✢·"
+_SPINNER_FRAMES = "◆◇●○·"  # GB2312 内字形: ✻✽✶✳ 这类 dingbat 在新宋体等控制台字体里渲染成方框
 _SPINNER_VERBS = ("Deliberating", "Pondering", "Scheming", "Simmering",
                   "Noodling", "Herding", "Conjuring", "Brewing", "Vibing")
 
@@ -615,7 +615,7 @@ class ZanyTui:
     # ---- 启动/收摊 ----
     def start(self) -> None:
         self.term.setup()
-        self.console.print("[bold]✻ Welcome to zany[/]")
+        self.console.print("[bold]◆ Welcome to zany[/]")
         self.console.print(f"[dim]  工作目录: {self.workdir} · tools: {', '.join(self.agent.tools)}[/]")
         self.console.print("[dim]  /new 新对话 · /resume 恢复 · /goal 持续目标 · ctrl+c 打断/退出 · ctrl+z 撤销输入[/]\n")
         if self.resume_id is not None:
