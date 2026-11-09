@@ -36,6 +36,7 @@ def save_session(
     marks: list | None = None,
     workdir: str = "",
     goal: dict | None = None,
+    title: str | None = None,
 ) -> None:
     path.parent.mkdir(exist_ok=True)
     data = {
@@ -51,6 +52,8 @@ def save_session(
         data["marks"] = marks
     if goal:
         data["goal"] = goal  # goal 模式状态(objective/status/turns), /resume 捡回
+    if title:
+        data["title"] = title  # 会话标题(模型自动生成或 /title 手动), /resume 列表展示
     path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
@@ -76,7 +79,7 @@ def list_sessions(workdir: str, limit: int = 10) -> list:
             continue
         # 展示 mtime(最后写入时间)而非会话开始时间, 和"最近活跃"排序一致
         ts = time.strftime("%m-%d %H:%M", time.localtime(f.stat().st_mtime))
-        out.append((f, ts, _first_user(msgs)[:40], len(msgs)))
+        out.append((f, ts, data.get("title") or _first_user(msgs)[:40], len(msgs)))
         if len(out) >= limit:
             break
     return out

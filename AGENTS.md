@@ -9,7 +9,7 @@
 
 ```
 agent.py          组装层:.env + SYSTEM_PROMPT + build_agent(workdir)
-tui.py            UI 层:claude 式 TUI(烙定区 print 进原生滚动 + 底部活动区整帧重绘, 只用 CUU/ED/CHA)/ 会话恢复 / cron / 无头模式(-p); 旧 Textual 全屏版在 legacy/tui_textual.py(2026-11-09 tui2 转正)
+tui.py            UI 层:claude 式 TUI(烙定区 print 进原生滚动 + 底部活动区整帧重绘, 只用 CUU/ED/CHA)/ 会话恢复 / cron / 无头模式(-p); 会话标题(首轮后异步生成 + /title 手动, 落顶层 title 键, /resume 列表优先展示); 旧 Textual 全屏版在 legacy/tui_textual.py(2026-11-09 tui2 转正)
 eval/main.py      评测:evals/cases.jsonl 用例 → 临时目录跑 agent → 断言判分
 core/
   loop.py         ★ agent loop:聚合 → 派发工具 → 回填 → 循环(约110行)
