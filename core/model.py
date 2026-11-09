@@ -49,11 +49,12 @@ def _sse_events(resp) -> dict:
 
 
 class ChatModel:
-    def __init__(self, model: str, max_tokens: int = 8192, client=None):
+    def __init__(self, model: str, max_tokens: int | None = None, client=None):
         os.environ["ANTHROPIC_API_KEY"]  # fail-fast 前移: 缺密钥仍在 build 时报, 不等首条消息
         self._client = client
         self.model = model
-        self.max_tokens = max_tokens
+        # thinking 计入 max_tokens, 8k 会被长思考整轮吃光(输出被截断, 无 text 无 tool_use)
+        self.max_tokens = max_tokens or int(os.environ.get("ZANY_MAX_TOKENS", "24576"))
         self._current = None  # 在途流(UI 线程 abort 时立即关闭, 不等下一个 SSE 事件)
 
     @property
