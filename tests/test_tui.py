@@ -179,6 +179,21 @@ def main():
     replay = buf3.getvalue()
     assert "已恢复" in replay and "📖" in replay
 
+    # ---- /resume picker 态: ↑↓ 移高亮, esc 取消, 回车恢复(legacy 弹层同交互) ----
+    t3.term.vt = True
+    t3._pending_pick = t3.resume_picker()
+    assert t3._pick_idx == 0
+    t3._on_key("DOWN")
+    assert t3._pick_idx == 1
+    t3._on_key("ESC")
+    assert t3._pending_pick is None
+    t3._pending_pick = t3.resume_picker()
+    t3._on_key("UP")  # 顶部向上 = 环绕到最后一个
+    assert t3._pick_idx == len(t3._pending_pick) - 1
+    t3._on_key("\r")
+    assert t3._pending_pick is None  # 回车消费了 picker
+    assert "已恢复" in buf3.getvalue()
+
     # ---- ctrl+c 两段式状态机(不测真时序, 只测分支) ----
     t4, agent4, _ = make_tui(tmp / "d")
     (tmp / "d").mkdir()
@@ -253,6 +268,36 @@ def main():
     t8.ed.clear()  # 模拟回车清空: 光标物理位置还在旧处
     t8._erase_frame()
     assert "\x1b[4B\r\x1b[5A\x1b[J" in t8.term.out.getvalue()[len(o3):]
+
+    # ---- 会话标题: /title 手动 + 自动生成清理 + 列表优先展示 ----
+    import core.sessions as _cs
+    from core.sessions import save_session, list_sessions as _ls
+    _orig_pd = _cs.project_dir
+    _cs.project_dir = lambda wd: tmp
+    try:
+        sp = tmp / "t_title.json"
+        save_session(sp, [{"role": "user", "content": "帮我把日志报错归类"}], title="日志报错归类")
+        assert load_session_data(sp)["title"] == "日志报错归类"
+        assert _ls(str(tmp))[0][2] == "日志报错归类"  # 列表优先展示标题
+        save_session(sp, [{"role": "user", "content": "第二问"}])
+        assert "title" not in load_session_data(sp)  # 无标题不写键, 旧标题不残留
+        t2, _, _ = make_tui(tmp, agent=FakeAgent())
+        t2.state["title"] = None
+        t2.sess_path = None
+        t2._maybe_auto_title()  # FakeAgent 无 .model → 不起真调用
+        assert t2.state["title"] is None
+        t2.sess_path = sp
+        t2.state["title"] = "手动的"
+        t2._maybe_auto_title()  # 已有标题不动
+        assert t2.state["title"] == "手动的"
+    finally:
+        _cs.project_dir = _orig_pd
+
+    _f = ZanyTui._clean_title
+    assert _f('"Hello, World".') == "Hello, World"
+    assert _f("标题: 修网关") == "修网关"
+    assert _f("Title: Fix gateway\nextra") == "Fix gateway"
+    assert _f("x" * 100) == "x" * 40
 
     print("tests/test_tui.py 全部通过")
 

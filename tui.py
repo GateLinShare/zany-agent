@@ -597,7 +597,8 @@ class ZanyTui:
                  term: Term | None = None, console: Console | None = None):
         self.workdir = workdir
         self.agent = agent or build_agent(workdir, with_mcp=False)  # MCP 后台补, 界面秒起
-        self.state = {"messages": [], "marks": [], "goal": None}
+        self.state = {"messages": [], "marks": [], "goal": None, "title": None}
+        self._sess_lock = threading.Lock()  # 轮末落盘 / 标题线程回写互斥, 防旧快照覆盖新消息
         self._turn_ok = False
         self.mcp_stamp = config_stamp()
         self.sess_path = None
@@ -623,6 +624,7 @@ class ZanyTui:
         self._last_tin = 0
         self._out_chars = 0  # 流式输出字符数(worker 写, spinner 估算 token 用)
         self._pending_pick: list | None = None  # /resume 编号选择态
+        self._pick_idx = 0  # picker 高亮行(legacy 弹层同交互: ↑↓ 选, 回车恢复, esc 取消)
         # 活动段共享状态(worker 写 / 主循环读)
         self._seg = {"think": "", "text": ""}
         self._seg_lock = threading.Lock()
@@ -739,6 +741,15 @@ class ZanyTui:
             secs = int(time.monotonic() - self._turn_t0)
             toks = fmt_tokens(max(1, self._out_chars // 3))
             rows.append(f"{C_SPIN}{fr}{C_RESET} {C_DIM}{verb}… (ctrl+c 打断 · ~{toks} tok · {secs}s){C_RESET}")
+        # 会话选择列表(legacy 弹层替身): 高亮行品红, 其余默认亮色
+        if self._pending_pick is not None:
+            for i, (_f, ts, snippet, n) in enumerate(self._pending_pick):
+                one = " ".join(snippet.split())  # 摘要可能含换行, 帧按行计数会被撑爆
+                cur = i == self._pick_idx
+                mark = f"{C_PROMPT}>{C_RESET} " if cur else "  "
+                style = C_PROMPT if cur else C_TEXT
+                rows.append(f"{mark}{style}{i + 1}. {ts}  ({n} 条)  {one}{C_RESET}")
+            rows.append(f"{C_DIM}↑↓ 选择 · 回车恢复 · esc 取消{C_RESET}")
         # 输入区: 上下两条线无侧边(claude 同款), 逻辑行按宽折成视觉行
         chunks_per_line = [_split_width(l, w - 2) for l in self.ed.lines]
         rows.append(f"{C_BORDER}{'─' * w}{C_RESET}")
@@ -794,6 +805,7 @@ class ZanyTui:
             if self.ed.text() or self._pending_pick is not None:
                 self.ed.clear()
                 self._pending_pick = None
+                self._pick_idx = 0
                 self._dirty = True
                 return
             if self._exit_pending and now - self._exit_pending <= EXIT_WINDOW:
@@ -807,7 +819,15 @@ class ZanyTui:
                 raise SystemExit(0)
             return
         if key in ("UP", "DOWN"):
-            self._nav(key)
+            if self._pending_pick is not None:  # picker 态: ↑↓ 移高亮, 不走历史导航
+                n = len(self._pending_pick)
+                self._pick_idx = (self._pick_idx + (1 if key == "DOWN" else -1)) % n
+            else:
+                self._nav(key)
+            self._dirty = True
+            return
+        if key == "ESC" and self._pending_pick is not None:
+            self._pending_pick = None  # picker 取消
             self._dirty = True
             return
         if key in ("\r", "\n"):  # \n 兼底: 没关掉 ICRNL 的环境 Enter 会变 \n
@@ -824,8 +844,7 @@ class ZanyTui:
             self.hist_idx = -1
             if self._pending_pick is not None:
                 picks, self._pending_pick = self._pending_pick, None
-                if t.isdigit() and 1 <= int(t) <= len(picks):
-                    self.do_resume(picks[int(t) - 1][0])
+                self.do_resume(picks[self._pick_idx][0])
                 self._dirty = True
                 return
             if not t:
@@ -979,6 +998,9 @@ class ZanyTui:
     # ---- 一轮对话 ----
     def _submit(self, text: str) -> None:
         if text.lower() in ("/resume", "/r"):
+            if self.busy:
+                self.log_write("[dim]当前轮还在跑, 先 ctrl+c 打断再 /resume[/dim]")
+                return
             picks = self.resume_picker()
             if picks:
                 self._pending_pick = picks
@@ -988,6 +1010,20 @@ class ZanyTui:
                 self.log_write("[dim]当前轮还在跑, 先 ctrl+c 打断再 /new[/dim]")
                 return
             self.new_chat()
+            return
+        if text.lower().startswith("/title"):
+            arg = text[6:].strip()
+            if not arg:
+                cur = self.state.get("title")
+                self.log_write(f"[dim]标题: {cur or '(无, /title <名字> 设置)'}[/dim]")
+                return
+            self.state["title"] = arg[:60]
+            if self.sess_path is not None:
+                with self._sess_lock:
+                    save_session(self.sess_path, self.state["messages"], self.agent.usage,
+                                 self.state["marks"], self.workdir, goal=self.state.get("goal"),
+                                 title=self.state["title"])
+            self.log_write(f"[cyan]📝 已命名: {self.state['title']}[/cyan]")
             return
         if text.lower().startswith("/goal"):
             self.handle_goal(text[5:].strip())
@@ -1081,10 +1117,13 @@ class ZanyTui:
         if self.sess_path is None:
             self.sess_path = new_session_file(self.workdir)
         try:
-            save_session(self.sess_path, self.state["messages"], self.agent.usage,
-                         self.state["marks"], self.workdir, goal=self.state["goal"])
+            with self._sess_lock:
+                save_session(self.sess_path, self.state["messages"], self.agent.usage,
+                             self.state["marks"], self.workdir, goal=self.state["goal"],
+                             title=self.state.get("title"))
         except Exception as e:
             q.put(("line", f"[dim](会话保存失败: {e})[/dim]"))
+        self._maybe_auto_title()
         flush_seg()
         marks = []
         if think_t0 is not None:
@@ -1131,6 +1170,7 @@ class ZanyTui:
     def new_chat(self) -> None:
         self.state["messages"] = []
         self.state["marks"] = []
+        self.state["title"] = None
         if self.state["goal"]:
             detach_goal(self.agent)
         self.state["goal"] = None
@@ -1146,6 +1186,7 @@ class ZanyTui:
         data = load_session_data(path)
         self.state["messages"] = data["messages"]
         self.state["marks"] = data.get("marks", []) or []
+        self.state["title"] = data.get("title")
         g = data.get("goal")
         self.state["goal"] = g
         if g:
@@ -1199,17 +1240,62 @@ class ZanyTui:
                     self.log_render(_turn_renderable(th, t, fold=True))
                     _marks_at(idx + 1)
 
-    def resume_picker(self) -> list | None:
-        from rich.markup import escape
+    # ---- 会话标题: 首轮后异步生成(hermes/codex 同款: 已有标题不覆盖, 失败静默), /title 手动改 ----
+    @staticmethod
+    def _clean_title(raw: str) -> str:
+        t = raw.strip().splitlines()[0].strip().strip("\"'“”‘’「」『』").rstrip(".。！!？?").strip("\"'“”‘’「」『』")
+        t = re.sub(r"^(title|标题)\s*[:：]\s*", "", t, flags=re.I)
+        return t[:40]
 
+    def _maybe_auto_title(self) -> None:
+        """前两次交换窗口内, 后台线程起 3-7 词标题; 失败静默(纯 UI 增强)。"""
+        if self.state.get("title") or self.sess_path is None:
+            return
+        if getattr(self.agent, "model", None) is None:  # 假 agent(测试)不起真调用
+            return
+        if sum(1 for m in self.state["messages"] if m.get("role") == "user") > 2:
+            return
+
+        def work() -> None:
+            try:
+                from core.model import ChatModel
+                u = next((text_of(m) for m in self.state["messages"] if m.get("role") == "user"), "")[:500]
+                a = next((text_of(m) for m in reversed(self.state["messages"])
+                          if m.get("role") == "assistant"), "")[:300]
+                if not u.strip():
+                    return
+                raw = ChatModel(os.environ["ANTHROPIC_MODEL"], max_tokens=64).complete(
+                    "",
+                    f"给这段对话起一个 3-7 个词的标题, 用用户使用的语言。\n"
+                    f"只输出标题本身: 不要引号、不要句号、不要前缀。\n\n用户: {u}\n\n助手: {a}")
+                title = self._clean_title(raw)
+                if not title:
+                    return
+                with self._sess_lock:
+                    if not self.state.get("title"):  # 手动 /title 先到则让位
+                        self.state["title"] = title
+                        save_session(self.sess_path, self.state["messages"], self.agent.usage,
+                                     self.state["marks"], self.workdir, goal=self.state.get("goal"),
+                                     title=title)
+            except Exception:
+                pass  # ponytail: 标题纯 UI 增强, 失败静默; hermes 会报错上屏, 我们不值当
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def resume_picker(self) -> list | None:
         picks = list_sessions(self.workdir)
         if not picks:
             self.log_write("[dim]本工作目录还没有历史会话[/dim]")
             return None
-        self._erase_frame()
-        for i, (_f, ts, snippet, n) in enumerate(picks, 1):
-            self.console.print(f"  [cyan]{i}[/]. {ts}  ({n} 条)  {escape(snippet)}")
-        self.console.print("[dim]输入编号选会话, 空回车取消[/dim]")
+        if not self.term.vt:  # 退行式没有活动区, 列表照旧打印 + 编号选择
+            from rich.markup import escape
+
+            for i, (_f, ts, snippet, n) in enumerate(picks, 1):
+                self.console.print(f"  [cyan]{i}[/]. {ts}  ({n} 条)  {escape(snippet)}")
+            self.console.print("[dim]输入编号选会话, 空回车取消[/dim]")
+            self._dirty = True
+            return picks
+        self._pick_idx = 0  # VT: 列表画进活动区帧里, 键位在 _on_key 分派
         self._dirty = True
         return picks
 
