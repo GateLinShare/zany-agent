@@ -588,32 +588,12 @@ class Term:
             if p.startswith("\x1b[201~"):
                 self._pend = p[6:]
                 return "PASTE_OFF"
-            # 部分 ConPTY/终端把方向键以 VT 序列塞进 console buffer(msvcrt 读到
-            # 字符流而非 \xe0 扩展键, PyCharm 终端实测), 不解析则上下左右/ESC 全被丢
-            while len(p) < 3 and p in ("\x1b", "\x1b[", "\x1bO"):
-                if _win_key_ready():
-                    self._pend += msvcrt.getwch()
-                    p = self._pend
-                elif time.monotonic() >= deadline:
-                    break
-                else:
-                    time.sleep(0.005)
             if p == "\x1b":
                 self._pend = ""
                 return "ESC"  # 孤按 ESC(picker 取消键), 不再静默丢弃
-            if len(p) >= 3 and p[1] == "[":
-                if p[2] in "ABCDHF":
-                    self._pend = p[3:]
-                    return {"A": "UP", "B": "DOWN", "C": "RIGHT", "D": "LEFT",
-                            "H": "HOME", "F": "END"}[p[2]]
-                if p.startswith("\x1b[3~"):
-                    self._pend = p[4:]
-                    return "DEL"
-            if len(p) >= 3 and p[1] == "O":
-                self._pend = p[3:]
-                return {"H": "HOME", "F": "END", "A": "UP", "B": "DOWN",
-                        "C": "RIGHT", "D": "LEFT"}.get(p[2], "")
-            self._pend = ""  # 不认识的 ESC 序列连 buffer 余量整体丢弃, 防尾巴漏成字符
+            # ponytail: 不解析 VT 序列(\x1b[A 等) —— ConPTY/PyCharm 方向键走 \x00
+            # 两段扩展键(实测), VT 形态是当初错误归因; 不认识的序列连余量整体丢弃
+            self._pend = ""
             return ""
         self._pend = p[1:]
         if c == "\x03":

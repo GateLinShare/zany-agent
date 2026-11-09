@@ -1,9 +1,12 @@
-"""Windows 读键层自检: ESC 序列解析 + 流通道(2026-11-09 PyCharm 终端冻结修复)。
+"""Windows 读键层自检: 流通道 + 读键解析(2026-11-09 PyCharm 终端冻结修复)。
 
-历史: PyCharm New Terminal 下 console 输入缓冲收不到键(isatty 真 console 形态
+历史: ① PyCharm New Terminal 下 console 输入缓冲收不到键(isatty 真 console 形态
 但 PeekConsoleInputW 永远空), msvcrt 单通道押注 → /resume 后整个 TUI 冻结,
 Ctrl+C 也死。修法: _win_key_ready 三态化, Peek 失败标 _in_broken, read_key
 自动切 stdin 流通道(pump 线程 + _stream_key 解析, 键名与 msvcrt 路径同一套)。
+② 真根因(同日): ConPTY 下方向键 = \x00 前缀+键码两段 getwch, "凑齐再解"
+return None 但下圈 _pend 非空跳过 getwch → 第二段永远无人取 → 全键冻结;
+修为前缀后当场补取。msvcrt 路径的 VT 序列解析分支是错误归因产物, 已删。
 """
 
 import queue
@@ -26,12 +29,18 @@ def _stream_key(term: Term, chunk: bytes) -> str | None:
     return term._stream_key()
 
 
-# ---- msvcrt 路径: VT 序列形态的方向键(ConPTY/PyCharm 塞字符流而非 \xe0 扩展键) ----
-for seq, want in [("\x1b[A", "UP"), ("\x1b[B", "DOWN"), ("\x1b[C", "RIGHT"),
-                  ("\x1b[D", "LEFT"), ("\x1b[H", "HOME"), ("\x1b[F", "END"),
-                  ("\x1b[3~", "DEL"), ("\x1bOA", "UP"), ("\x1bOH", "HOME")]:
+# ---- msvcrt 路径: 扩展键两段(ConPTY 是 \x00 前缀)拼合解析 ----
+# 无法直接喳 msvcrt.getwch(要真 console), 两段死锁的解析逻辑用预置缓冲覆盖:
+for seq, want in [("\x00P", "DOWN"), ("\xe0H", "UP"), ("\x00K", "LEFT"),
+                  ("\x00G", "HOME")]:
     got = _key(seq)
     assert got == want, f"{seq!r} -> {got!r}, want {want!r}"
+
+# 孤按 ESC(picker 取消键)仍返回 ESC, 非 paste 前缀序列丢弃(含 VT 序列形态)
+assert _key("\x1b") == "ESC"
+t = Term()
+t._pend = "\x1b[1;5A"
+assert t._read_key_win(None) == "" and t._pend == ""
 
 # bracketed paste 标记仍然优先, 余量留在缓冲
 t = Term()
