@@ -38,6 +38,13 @@ assert keys(["\x04"]) == ["CTRL_D"]
 # 扩展键(方向/Del)两段式
 assert keys(["\xe0", "H"]) == ["UP"]
 assert keys(["\x00", "S"]) == ["DEL"]
+# ctrl 系编辑键与 POSIX 同表(ctrl+z 撤销曾是报障点: win 路径漏映射被丢弃)
+assert keys(["\x1a"]) == ["UNDO"]
+assert keys(["\x01"]) == ["HOME"]
+assert keys(["\x05"]) == ["END"]
+assert keys(["\x0b"]) == ["KILL_END"]
+assert keys(["\x15"]) == ["KILL_BEG"]
+assert keys(["\x17"]) == ["KILL_WORD"]
 # 整段粘贴一次性到达: 标记解析 + 内部 \r 不丢
 assert keys(["\x1b[200~", "h", "i", "\r", "y", "o", "\x1b[201~"]) == [
     "PASTE_ON", "h", "i", "\r", "y", "o", "PASTE_OFF",
