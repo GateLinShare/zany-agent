@@ -168,9 +168,9 @@ def _turn_renderable(think: str, body: str, fold: bool = False, md: bool = True)
 # Windows: msvcrt.getwch + SetConsoleMode 清 ENABLE_PROCESSED_INPUT + 开 stdout VT。
 # VT 开不出来(老 conhost)→ 退行式(烙定区照常, 活动区关)。
 ESC = "\x1b"
-_SPINNER_FRAMES = "◆◇●○·"  # GB2312 内字形: ✻✽✶✳ 这类 dingbat 在新宋体等控制台字体里渲染成方框
 _SPINNER_VERBS = ("Deliberating", "Pondering", "Scheming", "Simmering",
                   "Noodling", "Herding", "Conjuring", "Brewing", "Vibing")
+_SPIN_CHAR = "◆"  # 静态: 用户不要帧动画闪烁(存活感由秒数跳动兜底)
 
 C_BORDER = "\x1b[90m"
 C_PROMPT = "\x1b[95m"
@@ -734,7 +734,7 @@ class ZanyTui:
                 style = C_TEXT if text.strip() else C_DIM
                 rows += [f"{style}{r}{C_RESET}" for r in self._wrap_tail(src, w - 2, 6)]
         if self.busy and self._turn_t0 is not None:
-            fr = _SPINNER_FRAMES[int(time.monotonic() * 8) % len(_SPINNER_FRAMES)]
+            fr = _SPIN_CHAR
             verb = _SPINNER_VERBS[self._verb]
             secs = int(time.monotonic() - self._turn_t0)
             toks = fmt_tokens(max(1, self._out_chars // 3))
