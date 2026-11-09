@@ -7,19 +7,22 @@
 ## 1. 总体分层与文件职责
 
 ```
-agent.py          组装层:.env 加载 + SYSTEM_PROMPT + build_agent(workdir)
-tui.py            UI 层:Textual TUI(rich 渲染)/ 会话恢复 / cron / 无头模式(-p)
+agent.py          组装层:.env + SYSTEM_PROMPT + 风格包(prompt_packs) + build_agent(workdir)
+tui.py            UI 层:claude 式 TUI(2026-11-09 tui2 转正; 旧 Textual 全屏版留档 legacy/tui_textual.py)/ 会话恢复 / cron / 无头模式(-p)
 cron_jobs.py      cron 定时任务:调度线程只入队,主循环消费后当普通输入跑一轮
 eval/main.py      评测:evals/cases.jsonl 用例 → 临时目录跑 agent → 断言判分
 core/
-  loop.py         ★ agent loop:流式聚合 → 派发工具 → 回填 → 循环(约 280 行)
-  model.py        模型薄封装:流式 SSE 事件原样转发 / 非流式补全(压缩用)
+  loop.py         ★ agent loop:流式聚合 → 派发工具 → 回填 → 循环(约 320 行)
+  model.py        模型薄封装:裸 httpx 直调 /v1/messages + 手解 SSE(不引 anthropic SDK——导入重, Windows 冷启动 6s→0.4s); 流式转发/非流式补全(压缩用)
   tools.py        Tool 统一形态 + 五内置工具(ls/read_file/write_file/edit_file/execute)
   subagent.py     task 子代理(递归在构造处掐死)
   summarize.py    上下文压缩(改写式)
   sessions.py     会话持久化:Anthropic 原生 dict 直接 JSON 落盘
   mcp.py          MCP 工具加载(单次连接即用即走)
   skills.py       skills 清单注入 system prompt(渐进披露)
+  goal.py         goal 模式:续跑投影 prompt + update_goal 工具(状态真身在 tui)
+  plugins/        能力插件 loader:core/plugins/<name>.py 暴露 register(workdir)->list[Tool]
+  frozen.py       frozen(PyInstaller)路径收口:只读资源 app_root() / 可写数据 data_dir()(~/.zany)
   messages.py     消息块辅助(text_of / tool_uses / est_tokens)
 ```
 
@@ -36,17 +39,22 @@ core/
 
 ```python
 build_agent(workdir, with_mcp=True):
-    model = ChatModel(make_client(), os.environ["ANTHROPIC_MODEL"])
+    model = ChatModel(os.environ["ANTHROPIC_MODEL"])
     tools = builtin_tools(workdir)
+    tools += load_plugins(workdir)                   # .env 的 ZANY_PLUGINS 选装能力插件
     tools += load_mcp_tools()                        # with_mcp=False 时 TUI 后台补
-    tools.append(make_task_tool(model, SYSTEM_PROMPT, workdir, []))  # 子代理不载 MCP
-    return Agent(model, SYSTEM_PROMPT + skill_section(workdir), tools, workdir)
+    tools.append(make_task_tool(model, STYLE_PROMPT, workdir, [],
+                                shared_interrupt=interrupt_flag))  # 子代理不载 MCP; 打断标志主/子共享
+    return Agent(model, STYLE_PROMPT + skill_section(workdir), tools, workdir, ...)
 ```
 
 - **system prompt 每轮现拼**:`Agent._system()` 每轮重读 `workdir/AGENTS.md` 拼进
   system prompt,用完即弃、不入 messages —— 用户改记忆不用重启,模型用 edit_file 维护。
-- **skills 渐进披露**:`skill_section()` 扫 `/skills`、`/.claude/skills`,清单(几十
-  token/条)常驻 system prompt,SKILL.md 全文按需 read_file,不占窗口。
+- **常驻文本与按需技能是两条通道**:`prompt_packs()` 把 `styles/<name>.md` 全文拼进
+  SYSTEM_PROMPT(`.env` 的 `PROMPT_PACKS` 逗号分隔选用,人格/规则类常驻行为);
+  skills 走渐进披露——`skill_section()` 扫项目 `skills/`、`.claude/skills`、
+  `.agents/skills` + 全局 `~/.zany/skills`,清单(几十 token/条)常驻,SKILL.md
+  全文按需 read_file,同名先到先得。按需技能别塞 PROMPT_PACKS(模型不会每轮自觉读全文)。
 - **MCP 后台补**:`build_agent(with_mcp=False)` 让 TUI 界面先起,`add_tools()` 在
   probe 完成后补工具(见 §7)。
 
@@ -72,7 +80,7 @@ def _run(self, messages):                    # stream() 包装:清残留打断�
 
 整个 agent 的本质就这么大:**调模型 → 有工具调用就执行并把结果作为 user 消息回填 →
 再调模型**,直到模型不再要求调用工具。所谓"框架"里神秘的 ReAct / tool-loop 核心就是
-这 20 行,其余全是工程细节。
+这 20 行,其余全是工程细节(循环本体约 320 行)。
 
 ### 3.2 事件解耦
 
@@ -188,10 +196,18 @@ class Tool:
 
 ## 5. 模型层(core/model.py)
 
-- `make_client()`:anthropic SDK 客户端,端点/密钥/模型名走 `.env`
-  (`ANTHROPIC_BASE_URL` / `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL`)。
-- `ChatModel.stream()`:SSE 原始事件原样 yield,不做聚合(聚合在 loop);
-  另有 `abort()` 供打断、`complete()` 非流式补全(压缩摘要用)。
+不引 anthropic SDK —— 它拖着 pydantic 一大家子,Windows 上(安全软件过滤驱动放大每文件
+打开开销)导入 6s+,冷启动 0.4s vs 6s。只用 POST `{base}/v1/messages` 一种调用,
+裸 httpx + 手解 SSE,事件直接是协议原生的 dict(单协议:模型吐的 / loop 聚合的 /
+会话落盘的是同一种 dict)。
+
+- `make_client()`:`httpx.Client`,端点/密钥/模型名走 `.env`
+  (`ANTHROPIC_BASE_URL` / `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL`),头同时带
+  `x-api-key` + `Authorization: Bearer`(GLM 代理只认 Bearer)。
+- `ChatModel.stream()`:SSE 原始事件(`content_block_start/delta/stop`)原样 yield,
+  不做聚合(聚合在 loop);另有 `abort()` 供打断。
+- `ChatModel.complete()`:非流式补全(压缩摘要用),复用同一 client。
+- 不做重试/降级(ponytail:代理断流直接报错给上层,频繁到需要再加 tenacity)。
 
 ## 6. 上下文压缩(core/summarize.py)
 
@@ -253,25 +269,77 @@ def maybe_summarize(model, messages, prompt_tokens=None,
 
 ## 7. MCP(core/mcp.py)
 
-读同目录 `mcp_servers.json`,stdio / http 双支持,单次连接即用即走,每台服务器
+读 `~/.zany/mcp_servers.json`(运行时数据根,不进 git,各 checkout 共享一份;
+2026-11-03 从项目根挪入),stdio / http 双支持,单次连接即用即走,每台服务器
 握手+list_tools 后归一成 Tool。两层超时快速认输(pypi 不通的环境里 uvx 会卡几分钟):
 
 - `PROBE_TIMEOUT = 15s`:握手+list_tools 超时跳过该服务器;
 - `CALL_TIMEOUT = 60s`:单次工具调用超时。
 
-stdio 子进程 stderr 默认收 devnull(`MCP_STDERR=1` 透传排障);
-`config_stamp()` 供热重载检测。TUI 场景 `build_agent(with_mcp=False)` 先起界面,
-probe 完成后 `agent.add_tools()` 补入。
+stdio 子进程 stderr 默认收 devnull(`MCP_STDERR=1` 透传排障);except 不接
+BaseException(防吞 Ctrl-C);工具名带 `mcp__<server>__<tool>` 前缀(pi/hermes 同款)
+防跨服务器重名覆盖;`config_stamp()` 供热重载检测。TUI 场景 `build_agent(with_mcp=False)`
+先起界面,probe 完成后 `agent.add_tools()` 补入;probe 失败的服务器进 `failed_servers()`
+名单,TUI worker 每 60s 全量重试补挂(5 分钟窗口)—— 界面不因 MCP 卡启动,网络恢复自动补挂。
 
 ## 8. 持久化与恢复(core/sessions.py)
 
 - 每轮 invoke 后覆盖写 `~/.zany/sessions/<时间戳>.json`(首轮创建),Anthropic 原生 dict
-  直接 JSON 落盘(含 usage);崩溃最多丢当轮。
-- `/resume`(TUI ResumeScreen)/ `tui.py -r [id]` 列出最近 10 个会话(按 mtime
-  排序),恢复后**原地续写原文件**;`-r` 不带 id = 最近活跃会话。
+  直接 JSON 落盘(含 usage);崩溃最多丢当轮。顶层扩展键(都不进 messages,回放忽略):
+  - `title`:会话标题(首轮后异步生成 + `/title` 手动),`/resume` 列表优先展示;
+  - `marks`:`[{at, thought, tools}]` 回合侧账本 —— Thought/tool 计数是运行时局部
+    变量,Anthropic 消息里没有;`at` = 回合结束时的消息条数做对齐锚,恢复回放按回合
+    分组对齐,锚失配(压缩改写后)静默跳过;老会话文件无 marks;
+  - `goal`:goal 模式状态(见 §9.4),`/resume` 捡回。
+- `/resume`(TUI 内嵌高亮行弹层:↑↓ 选、回车恢复、esc 取消)/ `tui.py -r [id]`
+  列出最近 10 个会话(按 mtime 排序),恢复后**原地续写原文件**;`-r` 不带 id =
+  最近活跃会话。
 - 恢复时回显历史:human/ai 全文,工具消息跳过。
 
-## 9. 入口与无头模式(tui.py)
+## 9. 交互层(tui.py)
+
+### 9.1 claude 式 TUI(2026-11-09 tui2 转正)
+
+不用全屏 UI 框架,渲染分两块:
+
+- **烙定区**:完成的轮次用普通 `print` 进终端原生滚动缓冲,永不重绘;
+- **活动区**(底部):输入行 + 状态行,整帧重绘,只用 CUU/ED/CHA 三个光标序列。
+
+markdown 策略:流式期间粗排纯文本(`_turn_renderable(md=False)`),轮次定稿后
+rich Markdown 整段渲染进烙定区 —— 绕开流式渲染的闪烁/竞态一整类问题。
+thinking 默认折叠 3 行(`.env` SHOW_THINKING 开全量),数据层始终全量记录;
+轮末摘要行 `Thought for Xs, ran N tool calls`。旧 Textual 全屏版留档
+`legacy/tui_textual.py`。
+
+### 9.2 读键(Term)
+
+POSIX 走 termios + select;Windows 走 getwch。Windows 侧踩过的坑已固化成约定:
+
+- **扩展键两段**:ConPTY/PyCharm 方向键 = `\x00` 前缀 + 键码两段 getwch。前缀必须
+  当场补取第二段(第二段已在 getwch 内部缓存,不取永远无人取,全键冻结——包括
+  Ctrl-C;2026-11-09 修,`/resume` 弹层死锁的根因)。老 console 是 `\xe0` 前缀同款。
+- **ESC 分支只认两样**:bracketed paste 结束标记、孤按 ESC(picker 取消键)。
+  不解析 VT 序列(`\x1b[A` 等)—— 那是当初的错误归因产物,2026-11-09 删;
+  ConPTY 下方向键实际走两段扩展键。
+- **conhost ctrl+v**:关 PROCESSED_INPUT 后无系统粘贴,键层映射 `PASTE_CLIP`
+  走 ctypes 读剪贴板(HANDLE 必须设 64 位 restype,截断即 access violation)。
+  另有无标记粘贴启发式(PyCharm/ConPTY/conhost 不透传 `?2004h` 粘贴标记,靠
+  PASTE_WINDOW 内连发判定)。
+- **诊断**:`ZANY_TUI_TRACE=路径` 开读键落盘探针,穿透 GUI 终端看冻结现场;
+  ConPTY harness(tmp/pty_drive.py,不进 git)可程序化喂键全链路复现。
+
+### 9.3 goal 模式(core/goal.py)
+
+`/goal <目标>` 设目标后宿主自动续跑(codex ext/goal 语义,不做 judge):
+
+- 状态真身是 tui 侧 dict,`update_goal` 工具闭包共享同一引用,零同步;
+- 每轮末尾 `turn_finished()` 现场注入续跑投影 user 消息(压缩免疫);
+- `update_goal(complete/blocked/paused)` 申报状态;预算 `GOAL_MAX_TURNS`
+  (`.env` 可配,默认 500)耗尽转 paused 可 resume;打断/异常轮不续;
+- 同一阻塞条件连续 3 轮才许申报 blocked,不许自作主张 paused;
+- 优先级:排队用户文本 > cron > goal。测试 tests/test_goal.py。
+
+### 9.4 入口与无头模式
 
 ```
 uv run tui.py              # interactive TUI
@@ -286,7 +354,27 @@ cat prompt.txt | uv run tui.py -p    # prompt 走 stdin
 后台调用走这条路径,下一轮把 stderr 里的 session id 传回 `-r` 即可多轮续聊。
 评测同走此路径:`eval/main.py` 读 `evals/cases.jsonl` 在临时目录跑 agent 断言判分。
 
-## 10. 一句话总结
+## 10. 能力插件(core/plugins/,master 基座)
+
+插件 = 一个 .py 暴露 `register(workdir) -> list[Tool]`,没有基类 / manifest /
+registry —— `.env` 的 `ZANY_PLUGINS` 开关 + Python import 就是全部仪式:
+
+- 降级:import 或 register 失败 → 打印跳过,不崩启动(与 core/mcp.py 同款);
+- 重依赖走 pyproject extras(master 默认不装,import 失败即该工具缺席);
+- 热更:`ZANY_PLUGINS_RELOAD=1` 时每次 load_plugins 先清 pyc 再 reload(防同秒
+  同大小改动拿旧字节码),供 gateway 长驻宿主"改插件文件 → 新会话即用新代码";
+- 重依赖插件文件只在 develop(browser/peers/restart),master 只留 loader 与约定。
+
+## 11. 分发(frozen + npm)
+
+master 基座打 PyInstaller onefile 经 npm 裸包 `zany-agent` 分发(平台包
+`zany-agent-{linux-x64,darwin-arm64,win32-x64}` 走 optionalDependencies,
+codex 同款),版本单源 pyproject.toml。frozen 路径约定收口 `core/frozen.py`:
+只读资源 `app_root()`(_MEIPASS)、可写数据 `data_dir()`(~/.zany);内置
+skills/styles 随包分发。源码里所有 `read_text/open` 必须 `encoding="utf-8"`
+(Windows 默认 GBK 必崩)。发布流程 docs/npm-release.md。
+
+## 12. 一句话总结
 
 协议只有一套(Anthropic 原生消息),循环只有一个(280 行的 `stream()`),
 工具只有一种形态(Tool dataclass)。框架消失后,agent 的全部复杂度 —— 聚合、
