@@ -229,6 +229,29 @@ def main():
     vt_out = t7.term.out.getvalue()
     assert "❯" in vt_out and "📖" in buf7.getvalue()  # 提交跑完 + 工具行烙定
 
+    # ---- 擦帧/定位配对: 防重绘整体上浮(真机截图 bug: 每敲一键框上浮一行) ----
+    t8, _, _ = make_tui(tmp / "h")
+    (tmp / "h").mkdir()
+    t8.term.vt = True
+    t8.ed.insert("abc")
+    t8._render_frame()
+    assert t8._park_down == 3  # 定位进了输入行: 帧底到光标隔 3 行
+    o1 = t8.term.out.getvalue()
+    assert "\x1b[3A\x1b[8G" in o1  # 定位序列(上移 3; G 1-based: 4+3字符+1=8)
+    t8.ed.insert("d")  # 再打一键 → 重绘: 擦帧必须先原路下移回帧底
+    t8._render_frame()
+    o2 = t8.term.out.getvalue()[len(o1):]
+    assert o2.startswith("\x1b[3B\r\x1b[4A\x1b[J"), repr(o2[:40])
+    # 定位后编辑器状态变了(清空), 擦帧仍用记录值, 不按当前状态反推
+    t8.ed.set_text("多\n行")
+    t8._on_key("UP")  # 光标到第 1 行: park=2+2-0=4; 若按清空后状态反推会是 3
+    t8._render_frame()
+    assert t8._park_down == 4
+    o3 = t8.term.out.getvalue()
+    t8.ed.clear()  # 模拟回车清空: 光标物理位置还在旧处
+    t8._erase_frame()
+    assert "\x1b[4B\r\x1b[5A\x1b[J" in t8.term.out.getvalue()[len(o3):]
+
     print("tests/test_tui2.py 全部通过")
 
 
