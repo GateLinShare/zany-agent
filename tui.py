@@ -181,6 +181,29 @@ C_SPIN = "\x1b[93m"
 C_WARN = "\x1b[33m"
 C_RESET = "\x1b[0m"
 
+# 落盘探针(ZANY_TUI_TRACE=路径 才开): 读键层每步写文件, 穿透 GUI 终端看冻结现场
+_TRACE = os.environ.get("ZANY_TUI_TRACE")
+_trace_f = None
+
+
+def trace(msg: str) -> None:
+    global _trace_f
+    if not _TRACE:
+        return
+    if _trace_f is None:
+        _trace_f = open(_TRACE, "a", encoding="utf-8", buffering=1)
+    _trace_f.write(f"{time.monotonic():.3f} {msg}\n")
+
+# 流通道(stdin 字节)的 VT 序列→键名, 长序在前(防 \x1b[ 提前命中吃掉完整序列)
+_VT_SEQS = (("\x1b[200~", "PASTE_ON"), ("\x1b[201~", "PASTE_OFF"),
+            ("\x1bOA", "UP"), ("\x1bOB", "DOWN"), ("\x1bOC", "RIGHT"), ("\x1bOD", "LEFT"),
+            ("\x1bOH", "HOME"), ("\x1bOF", "END"),
+            ("\x1b[A", "UP"), ("\x1b[B", "DOWN"), ("\x1b[C", "RIGHT"), ("\x1b[D", "LEFT"),
+            ("\x1b[H", "HOME"), ("\x1b[F", "END"), ("\x1b[3~", "DEL"))
+_CTRL_KEYS = {"\x01": "HOME", "\x05": "END", "\x0b": "KILL_END",
+              "\x15": "KILL_BEG", "\x17": "KILL_WORD", "\x1a": "UNDO",
+              "\x16": "PASTE_CLIP"}
+
 # Windows 控制台输入记录: msvcrt.kbhit 对 FOCUS/MOUSE 记录不可靠, getwch 吞掉
 # 非键记录后在 ReadConsoleInput 上无限阻塞(实测) —— 读键必须自己 Peek 过滤。
 if sys.platform == "win32":
@@ -201,6 +224,15 @@ if sys.platform == "win32":
     class _FOCUS_EVENT(_ct.Structure):
         _fields_ = [("bSetFocus", _ct.c_int)]
 
+    class _SMALL_RECT(_ct.Structure):
+        _fields_ = [("Left", _ct.c_short), ("Top", _ct.c_short),
+                    ("Right", _ct.c_short), ("Bottom", _ct.c_short)]
+
+    class _CSBI(_ct.Structure):
+        _fields_ = [("dwSize", _COORD), ("dwCursorPosition", _COORD),
+                    ("wAttributes", _ct.c_ushort), ("srWindow", _SMALL_RECT),
+                    ("dwMaximumWindowSize", _COORD)]
+
     class _EVENT_U(_ct.Union):
         _fields_ = [("KeyEvent", _KEY_EVENT), ("MouseEvent", _MOUSE_EVENT),
                     ("FocusEvent", _FOCUS_EVENT)]
@@ -208,22 +240,49 @@ if sys.platform == "win32":
     class _WIN_INPUT_RECORD(_ct.Structure):
         _fields_ = [("EventType", _ct.c_ushort), ("Event", _EVENT_U)]
 
-    def _win_key_ready() -> bool:
-        """输入缓冲里有没有可读的 key-down; 顺路把 FOCUS/MOUSE/SIZE 等非键记录丢掉。"""
+    def _win_key_ready() -> bool | None:
+        """输入缓冲里有没有可读的 key-down; 顺路把 FOCUS/MOUSE/SIZE 等非键记录丢掉。
+        返回三态: True 有键 / False 无键(Peek 正常) / None 通道坏(句柄非 console,
+        PyCharm New Terminal 实测: isatty 真 console 形态但键不进 buffer, 唯一退路是 stdin 流)。"""
         k32 = _ct.windll.kernel32
         h = k32.GetStdHandle(-10)
         rec = _WIN_INPUT_RECORD()
         n = _ct.c_uint32()
         while True:
-            if not k32.PeekConsoleInputW(h, _ct.byref(rec), 1, _ct.byref(n)) or not n.value:
-                return False
+            ok = k32.PeekConsoleInputW(h, _ct.byref(rec), 1, _ct.byref(n))
+            if not ok:
+                return None  # Peek 失败: 句柄非 console, 此通道永远收不到键
+            if not n.value:
+                return False  # buffer 空
             if rec.EventType == 0x1 and rec.Event.KeyEvent.bKeyDown:
                 return True
             if not k32.ReadConsoleInputW(h, _ct.byref(rec), 1, _ct.byref(n)):
-                return False
+                return None
 else:
     def _win_key_ready() -> bool:
         return False
+
+
+def _win_console_cols() -> int:
+    """CONOUT$ 实测列数; 拿不到返 0。stdout 被重定向成管道(PyCharm/ConPTY)时
+    shutil/rich 从 stdout 拿不到宽, 用它垫 COLUMNS(终端宽度的唯一可靠来源)。"""
+    if sys.platform != "win32":
+        return 0
+    import ctypes
+    k32 = ctypes.windll.kernel32
+    k32.CreateFileW.restype = ctypes.c_void_p
+    h = k32.CreateFileW("CONOUT$", 0xC0000000, 0x3, None, 3, 0, None)
+    if not h:
+        return 0
+    csbi = _CSBI()
+    ok = k32.GetConsoleScreenBufferInfo(h, ctypes.byref(csbi))
+    k32.CloseHandle(h)
+    return (csbi.srWindow.Right - csbi.srWindow.Left + 1) if ok else 0
+
+
+_cols = _win_console_cols()
+if _cols:
+    os.environ["COLUMNS"] = str(_cols)
 
 
 def cells(s: str) -> int:
@@ -256,6 +315,9 @@ class Term:
         self._raw_saved = None
         self._pend = b""
         self._is_win = sys.platform == "win32"
+        self._in_broken = False   # console 输入通道坏(Peek 失败): 切 stdin 流读
+        self._stream_q = None     # 流通道的 pump 队列(lazy 建)
+        self._eof = False         # 流通道读到 EOF
 
     # ---- 生命周期 ----
     def setup(self) -> None:
@@ -291,15 +353,21 @@ class Term:
         return True
 
     def _win_setup(self) -> bool:
-        """stdout 开 VT(失败=活动区关); stdin 关 PROCESSED/LINE/ECHO(ctrl+c 走字节流)。"""
+        """stdin 关 PROCESSED/LINE/ECHO(ctrl+c 走字节流); stdout 开 VT。
+        console 存在性用 CONOUT$ 判, 不看 stdout 句柄 —— PyCharm/ConPTY 把 stdout
+        重定向成管道(实测 GetFileType=3), 旧判定直接把完整 TUI 打成退行式,
+        /resume 后方向键/回车/粘贴全无反应(2026-11-09 冻结根因)。"""
         try:
             import ctypes
             k32 = ctypes.windll.kernel32
-            h = k32.GetStdHandle(-11)
+            k32.CreateFileW.restype = ctypes.c_void_p
+            h = k32.CreateFileW("CONOUT$", 0xC0000000, 0x3, None, 3, 0, None)
+            if not h:
+                return False  # 真·无 console(IDE Run 窗口等)才退行式
             mode = ctypes.c_uint32()
-            if not k32.GetConsoleMode(h, ctypes.byref(mode)):
-                return False
-            k32.SetConsoleMode(h, mode.value | 0x0004)  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+            if k32.GetConsoleMode(h, ctypes.byref(mode)):
+                k32.SetConsoleMode(h, mode.value | 0x0004)  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+            k32.CloseHandle(h)
             hin = k32.GetStdHandle(-10)
             m2 = ctypes.c_uint32()
             if k32.GetConsoleMode(hin, ctypes.byref(m2)):
@@ -318,7 +386,16 @@ class Term:
     # ---- 读键 ----
     def read_key(self, timeout: float | None) -> str | None:
         if self._is_win:
-            return self._read_key_win(timeout)
+            if not self._in_broken:
+                k = self._read_key_win(timeout)
+                if not self._in_broken:
+                    trace(f"read_key -> {k!r}")
+                    return k
+                self._pend = b""  # console 通道坏, 残键丢弃, 转流通道
+                trace("switch to stream channel")
+            k = self._read_key_stream(timeout)
+            trace(f"read_key(stream) -> {k!r}")
+            return k
         import select
         while True:
             if self._pend:
@@ -345,9 +422,15 @@ class Term:
         if self._pend:
             return True
         if self._is_win:
+            if self._in_broken:
+                item = self._stream_get(window)
+                if item:
+                    self._pend += item
+                    return True
+                return False
             end = time.monotonic() + window
             while time.monotonic() < end:
-                if _win_key_ready():
+                if _win_key_ready() is True:
                     return True
                 time.sleep(0.004)
             return False
@@ -459,19 +542,31 @@ class Term:
         import msvcrt
         if timeout is not None:
             end = time.monotonic() + timeout
-            while not self._pend and not _win_key_ready():
+            while not self._pend:
+                k = _win_key_ready()
+                if k is not False:
+                    trace(f"peek={k!r}")
+                if k is None:
+                    self._in_broken = True  # 此通道永远收不到键, read_key 会切流
+                    return None
+                if k:
+                    break
                 if time.monotonic() >= end:
                     return None
                 time.sleep(0.02)
         if not self._pend:
             self._pend = msvcrt.getwch()
-            while _win_key_ready():  # 粘贴/快速连打: 突发内字符一次收进缓冲
+            while _win_key_ready() is True:  # 粘贴/快速连打: 突发内字符一次收进缓冲
                 self._pend += msvcrt.getwch()
+        trace(f"raw={self._pend!r}")
         p = self._pend
         c = p[0]
-        if c in ("\x00", "\xe0"):  # 扩展键: 两段 getwch
+        if c in ("\x00", "\xe0"):  # 扩展键: 两段 getwch(ConPTY 是 \x00 前缀, 老 console 是 \xe0)
             if len(p) < 2:
-                return None  # 凑齐再解
+                # 第二段在同一条 KEY_EVENT 里, 卡在 getwch 内部缓存 —— 必须
+                # 当场补取(不阻塞); 若留给下圈, 下圈 _pend 非空跳过 getwch → 死锁
+                self._pend = p + msvcrt.getwch()
+                p = self._pend
             self._pend = p[2:]
             return {"H": "UP", "P": "DOWN", "K": "LEFT", "M": "RIGHT",
                     "G": "HOME", "O": "END", "S": "DEL"}.get(p[1], "")
@@ -528,9 +623,98 @@ class Term:
         if c in ("\x08", "\x7f"):
             return "BS"
         # ctrl 系编辑键与 POSIX _parse_posix 同表(ctrl+z 撤销/ctrl+a/e/k/u/w)
-        return {"\x01": "HOME", "\x05": "END", "\x0b": "KILL_END",
-                "\x15": "KILL_BEG", "\x17": "KILL_WORD", "\x1a": "UNDO",
-                "\x16": "PASTE_CLIP"}.get(c, c)
+        return _CTRL_KEYS.get(c, c)
+
+    # ---- 流通道: console 输入坏时的退路 ----
+    def _stream_pump(self) -> None:
+        """后台线程阻塞读 stdin 字节 → 队列。Windows select 不支持管道, 想无阻塞
+        读流只能这样(PyCharm New Terminal: console buffer 收不到键, 键从 stdin 进)。"""
+        import queue as _q
+        import threading as _th
+        self._stream_q = _q.Queue()
+
+        def work() -> None:
+            while True:
+                try:
+                    b = os.read(0, 4096)
+                except OSError:
+                    b = b""
+                self._stream_q.put(b)
+                if not b:
+                    time.sleep(0.05)  # EOF: 别忙转
+
+        _th.Thread(target=work, daemon=True).start()
+
+    def _stream_get(self, timeout: float) -> bytes | None:
+        if self._stream_q is None:
+            return None
+        try:
+            return self._stream_q.get(timeout=timeout)
+        except Exception:
+            return None
+
+    def _stream_key(self) -> str | None:
+        """_pend(bytes) → 一个键; 不完整返回 None(等下一批)。与 msvcrt 路径同一套键名。"""
+        p = self._pend
+        for seq, key in _VT_SEQS:
+            sb = seq.encode("ascii")
+            if p.startswith(sb):
+                self._pend = p[len(sb):]
+                return key
+        if len(p) <= 6 and any(sb.startswith(p) for sb in
+                               (s.encode("ascii") for s, _ in _VT_SEQS)):
+            return None  # 序列不完整: 凑齐再解
+        b = p[0]
+        self._pend = p = p[1:]
+        if b == 0x03:
+            return "CTRL_C"
+        if b == 0x04:
+            return "CTRL_D"
+        if b == 0x0d:
+            return "\r"
+        if b == 0x0a:
+            return "\n"
+        if b in (0x7f, 0x08):
+            return "BS"
+        if b < 0x80:
+            return _CTRL_KEYS.get(chr(b), chr(b))
+        n = 2 if b < 0xE0 else 3 if b < 0xF0 else 4
+        if len(p) < n - 1:  # p 是首字节之后的字节; 多字节被读边界切开: 凑齐再解
+            self._pend = bytes([b]) + p
+            return None
+        try:
+            return (bytes([b]) + p[:n - 1]).decode("utf-8")
+        except UnicodeDecodeError:
+            return ""  # 坏字节丢
+        finally:
+            self._pend = p[n - 1:]
+
+    def _read_key_stream(self, timeout: float | None) -> str | None:
+        if self._stream_q is None:
+            self._stream_pump()
+        wait = 0.2 if timeout is None else max(timeout, 0.02)
+        while True:
+            if self._pend:
+                k = self._stream_key()
+                if k is not None:
+                    return k
+                if not self._pend and self._eof:
+                    return "CTRL_D"
+                # 不完整序列/utf-8 被切开: 继续收下一批
+            item = self._stream_get(wait)
+            if item is None:
+                if self._pend == b"\x1b":
+                    self._pend = b""
+                    return "ESC"  # 孤按 ESC 超时判定(POSIX 同款)
+                if self._pend:
+                    self._pend = b""  # 不完整序列超时丢弃, 防残尾变字符
+                return None
+            if not item:
+                self._eof = True
+                if not self._pend:
+                    return "CTRL_D"
+                continue
+            self._pend += item
 
 
 # ---- 输入编辑器(多行, claude 最小键位集) ----
@@ -871,6 +1055,7 @@ class ZanyTui:
 
     # ---- 键处理 ----
     def _on_key(self, key: str) -> None:
+        trace(f"on_key {key!r}")
         if key == "CTRL_C":
             now = time.monotonic()
             if now - self._last_cc < 0.1:
@@ -1283,6 +1468,8 @@ class ZanyTui:
         self._dirty = True
 
     def do_resume(self, path) -> None:
+        trace(f"resume {path.name} begin, {len(self.state['messages']) if isinstance(self.state, dict) else '?'} msgs")
+        t0 = time.monotonic()
         data = load_session_data(path)
         self.state["messages"] = data["messages"]
         self.state["marks"] = data.get("marks", []) or []
@@ -1339,6 +1526,7 @@ class ZanyTui:
                 if (th and SHOW_THINKING) or t:
                     self.log_render(_turn_renderable(th, t, fold=True))
                     _marks_at(idx + 1)
+        trace(f"resume done in {time.monotonic() - t0:.2f}s")
 
     # ---- 会话标题: 首轮后异步生成(hermes/codex 同款: 已有标题不覆盖, 失败静默), /title 手动改 ----
     @staticmethod
@@ -1460,6 +1648,14 @@ def _headless(argv: list[str]) -> None:
 
 
 def main() -> None:
+    if sys.platform == "win32":
+        # stdout 被重定向成管道(PyCharm/ConPTY)时编码退回 locale(GBK), rich 框线/中文直接崩
+        for s in (sys.stdout, sys.stderr):
+            try:
+                if (s.encoding or "").lower() not in ("utf-8", "utf8"):
+                    s.reconfigure(encoding="utf-8")
+            except Exception:
+                pass
     if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
         print('用法: tui.py [-r <会话id>] | [-p "任务"]')
         return
