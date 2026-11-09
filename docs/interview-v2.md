@@ -2,8 +2,9 @@
 
 
 > 一个零 agent 框架的编码 agent:loop、工具、上下文压缩、子代理、评测闭环
-> 全部手写,核心在 `core/` 目录约 700 行纯 Python。第三方依赖只剩
-> anthropic(模型 SDK)、mcp(协议客户端)、textual(TUI)、croniter。
+> 全部手写,连模型 SDK 都没要 —— 裸 httpx 直调 /v1/messages。`core/` 目录
+> 约 1500 行纯 Python,第三方依赖只剩 httpx、mcp(协议客户端)、croniter
+> (TUI 已不用 textual,只剩 legacy 版在用)。
 > 本文按"面试官会追问什么"组织:每个设计给出**为什么这么选、放弃了什么、
 > 什么时候升级**。组件实现细节见 `docs/architecture.md`,本文讲决策与叙事。
 
@@ -26,21 +27,25 @@
 
 ```
 ┌─ 交互层 ────────────────────────────────────┐
-│ tui.py  唯一入口: 无参 = Textual TUI;        │
+│ tui.py  唯一入口: 无参 = claude 式 TUI;      │
 │         -p = 无头模式(供脚本/后台调用)       │
 ├─ 组装层 ────────────────────────────────────┤
-│ agent.py  .env + SYSTEM_PROMPT + build_agent│
+│ agent.py  .env + SYSTEM_PROMPT + 风格包 +    │
+│           build_agent                        │
 ├─ 核心层(全部手写) ─────────────────────────┤
 │ core/loop.py      agent loop + 流式聚合      │
 │ core/tools.py     内置工具 + Tool 统一形态    │
 │ core/subagent.py  task 子代理                 │
 │ core/summarize.py 上下文压缩(改写式)         │
-│ core/model.py     模型薄封装(流式 SSE)       │
+│ core/model.py     模型薄封装(裸 httpx + 手解 SSE)│
+│ core/goal.py      goal 模式(宿主自动续跑)   │
 │ core/skills.py    skills 渐进披露             │
 │ core/mcp.py       MCP 工具加载                │
+│ core/plugins/     能力插件 loader             │
 │ core/messages.py  消息格式小工具              │
 ├─ 支撑层 ────────────────────────────────────┤
 │ core/sessions.py  会话落盘/恢复               │
+│ core/frozen.py    PyInstaller 路径收口        │
 │ cron_jobs.py      定时任务                    │
 └──────────────────────────────────────────────┘
 ```
@@ -53,14 +58,14 @@ dict 之间每轮转两次,序列化还要走 `message_to_dict`;现在 `json.dum
 ### 2.2 组装
 
 ```python
-def build_agent(workdir):
-    model = ChatModel(make_client(), os.environ["ANTHROPIC_MODEL"])
-    tools = builtin_tools(workdir) + load_mcp_tools()
-    tools.append(make_task_tool(model, SYSTEM_PROMPT, workdir, []))
-    return Agent(model, SYSTEM_PROMPT + skill_section(workdir), tools, workdir)
+def build_agent(workdir, with_mcp=True):
+    model = ChatModel(os.environ["ANTHROPIC_MODEL"])
+    tools = builtin_tools(workdir) + load_plugins(workdir) + load_mcp_tools()
+    tools.append(make_task_tool(model, STYLE_PROMPT, workdir, []))
+    return Agent(model, STYLE_PROMPT + skill_section(workdir), tools, workdir)
 ```
 
-组装层就这四行 —— 因为没有框架要配,组装自然就薄。三个仍然值得讲的取舍:
+组装层就这几行 —— 因为没有框架要配,组装自然就薄。四个仍然值得讲的取舍:
 
 **① 路径不做重写。** 文件工具与 execute 同一套文件系统视图(pi/hermes 同款):
 绝对路径字面直用,相对路径相对 workdir。曾有 workdir 虚拟根(`/agent.py` 映射到
@@ -71,30 +76,39 @@ def build_agent(workdir):
 否则记忆每轮重复累加,上下文膨胀、缓存全失效。AGENTS.md 由模型自己用
 edit_file 维护("用户纠正过的事情记进去"),这是 agent 自演化的最小形态。
 
-**③ 安全模型。** 权限列表永远不是安全边界,OS 级隔离才是。当前定位是开发者在
+**③ 常驻文本与按需技能分两条通道。** 人格/规则类常驻文本走 `styles/<name>.md`
++ `PROMPT_PACKS`,全文拼进 system prompt —— 常驻行为不能走 skills 渐进披露
+(模型不会每轮自觉读全文);按需技能仍走 skills 清单常驻、SKILL.md 按需读。
+能力扩展另有插件缝:`core/plugins/<name>.py` 暴露 `register(workdir)->list[Tool]`,
+`ZANY_PLUGINS` 选用,import 失败降级不崩启动 —— 不做基类/manifest/registry。
+
+**④ 安全模型。** 权限列表永远不是安全边界,OS 级隔离才是。当前定位是开发者在
 可信环境用;要无人值守跑不可信目录,升级路径是给 execute 换容器/namespace,
 `Tool.run` 的接口不用动。
 
-## 3. Agent Loop 设计(core/loop.py,约 110 行)
+## 3. Agent Loop 设计(core/loop.py,约 320 行)
 
 ### 3.1 基本循环
 
 ```python
 def stream(self, messages):                     # 生成器,原地改写 messages
-    maybe_summarize(self.model, messages)       # 开工前查上下文水位
     for _ in range(self.max_turns):             # 默认 40,防打转烧钱
+        if interrupted: yield ("interrupted", ...); return
+        yield from 压缩检查(preflight)          # 恢复的超长会话兜底
         blocks = 聚合一次流式模型调用()
         messages.append({"role": "assistant", "content": blocks})
         calls = 提取 tool_use 块()
         if not calls:
             return                              # 纯文本 = 回答完毕
-        messages.append({"role": "user",
-                         "content": [每个 call 的 tool_result]})
+        results = 派发工具(错误统一转文本)
+        messages.append({"role": "user", "content": results})
+        yield from 压缩检查(postflight)         # 真实 prompt_tokens 判定
     raise RuntimeError("超过最大轮数")
 ```
 
-agent 的本质:**调模型 → 有 tool_use 就执行工具、结果作为 user 消息回填 →
-再调模型,直到没有 tool_use**。两个刻意的设计:
+环还是那 20 行;从 110 行到 320 行,长出来的是工程件:流式聚合、hermes 语义的
+协作式打断、token 账本、工具防爆账本、压缩防抖熔断 —— 每一件都对应一个实测
+踩过的坑,没有一件是"为将来准备"的。
 
 - **工具错误也返回文本,不抛异常。** 文件不存在、命令超时、MCP 掉线,统一
   转成错误字符串塞回 tool_result,模型看到会自己修正重试 —— 实测 GLM 第一轮
@@ -105,7 +119,9 @@ agent 的本质:**调模型 → 有 tool_use 就执行工具、结果作为 user
 
 ### 3.2 流式聚合(loop 里最"脏"但最值钱的 30 行)
 
-`core/model.py` 把 anthropic SDK 的 SSE 原始事件原样 yield,聚合在 loop 做:
+`core/model.py` 不引 anthropic SDK —— 裸 httpx 直调 `/v1/messages` 手解 SSE
+(SDK 拖着 pydantic 一大家子,Windows 上导入 6s+,换 httpx 后冷启动 0.4s;
+顺带把"事件即协议 dict"贯彻到底,连 SDK 对象这一层转换都归零)。聚合在 loop 做:
 
 - `text_delta` / `thinking_delta` → 按 block index 累加;
 - `signature_delta` → **thinking 块的签名原样保留**,下一轮请求不回传就 400
@@ -113,9 +129,11 @@ agent 的本质:**调模型 → 有 tool_use 就执行工具、结果作为 user
 - `input_json_delta` → tool_use 入参是分片 JSON,按 index 拼接,
   block stop 时一次性 `json.loads`。
 
-loop 对外只 yield 四种事件元组:`("thinking", d)` / `("text", d)` /
-`("tool_start", id, name)` / `("tool_result", id, name, input_json, output)`。
-UI 消费事件、不碰循环;headless 模式直接忽略事件 —— **UI 和 loop 用事件流解耦**。
+loop 对外只 yield 事件元组:`("thinking", d)` / `("text", d)` /
+`("tool_start", id, name)` / `("tool_result", id, name, input_json, output)` /
+`("usage", turn_in, turn_out)` 真实 token / `("compact", ...)` 压缩与失败 /
+`("interrupted", reason)`。UI 消费事件、不碰循环;headless 模式直接忽略事件
+—— **UI 和 loop 用事件流解耦**。
 
 ### 3.3 三种 agent 范式,loop 里只有一种(设计判断,面试常问)
 
@@ -138,17 +156,22 @@ UI 消费事件、不碰循环;headless 模式直接忽略事件 —— **UI 和
 
 ### 3.4 双入口
 
-- **TUI**:后台线程跑 `agent.stream()`,thinking 洋红/正文白色实时渲染,
-  工具打一行摘要;多行输入(粘贴回放的连击检测)、/resume 弹层、
-  MCP 热重载(mcp_servers.json mtime 变更 → 下轮重建 agent)、cron 唤醒。
+- **TUI**(2026-11-09 claude 式重构,不再用 Textual):完成的轮次 print 进终端
+  原生滚动(烙定区),底部活动区整帧重绘,只用 CUU/ED/CHA 三个光标序列;
+  thinking 默认折叠 3 行。读键自己写:POSIX 走 termios;Windows 有三件套 ——
+  ConPTY 扩展键 `\x00` 前缀+键码两段 getwch(前缀不当场补取第二段就全键冻结,
+  含 Ctrl-C)、conhost 粘贴走 ctypes 读剪贴板、`ZANY_TUI_TRACE` 落盘探针
+  穿透 GUI 终端诊断。另有 /resume 内嵌弹层、MCP 热重载、cron 唤醒。
 - **无头 `-p`**:单次 invoke,`-r <id>` 续会话(id 不存在则以该 id 新开);
   stdout 只出最终回复、stderr 出 session id —— **stdout 机器读、stderr 人读**。
 
 ### 3.5 上下文管理:三层防线
 
-1. **入口截断**:单工具结果 20000 字符封顶,超长提示分页 —— 别让一个
+1. **入口截断**:单工具结果 200k 字符封顶,截断保头 40%+保尾 60%(错误常在
+   头、新输出在尾),execute 超长全量落盘把路径给模型 —— 别让一个
    `cat 大文件` 撑爆窗口;
-2. **80k token 触发改写式压缩**(见 §4);
+2. **改写式压缩**(见 §4):触发点 = 上下文窗口 × 比例(代码默认 120k,
+   `.env` 可配),postflight 优先用上一轮真实 prompt_tokens 判定;
 3. **长期记忆走文件不走 messages**:AGENTS.md 注入 system prompt,
    "短期靠窗口、长期靠文件"分层。
 
@@ -161,14 +184,17 @@ UI 消费事件、不碰循环;headless 模式直接忽略事件 —— **UI 和
 class Tool:
     name: str; description: str; input_schema: dict
     run: Callable[[dict], str]     # 错误也返回文本,不抛异常
+    ledger: Any | None = None      # 行为熔断账本(仅内置工具),压缩后清空
 ```
 
-内置工具、MCP 工具、task 子代理全部归一成这一个 dataclass,loop 不区分来源。
-框架的 middleware/handler 体系,等价物就是这 10 行。
+内置工具、MCP 工具、task 子代理、插件工具全部归一成这一个 dataclass,loop 不区分
+来源。框架的 middleware/handler 体系,等价物就是这 10 行。
 
-内置五个工具:ls / read_file(offset-limit 分页、行号、剩余行提示)/
-write_file / edit_file(old_string 唯一性校验,多处报错提示 replace_all,
-防误替换)/ execute(shell=True、timeout 120s、stdout+stderr+exit code)。
+内置五个工具:ls / read_file(offset-limit 分页、行号、同参数重读去重)/
+write_file / edit_file(批量 edits 对原文定位逆序套用 + 模糊匹配兜底,
+pi 同款)/ execute(timeout 1200s、超时杀整个进程组并回传已有输出)。
+另有防爆账本:重复读去重、edit 连败升级提示、同命令重跑提醒 —— 都是提示
+不是阻断,把"你在循环里"这个元信息喂给模型让它自己改行为。
 
 task 子代理 = "把再建一个 Agent 实例包装成工具":子代理拿同一套工具但
 **唯独没有 task**(递归在构造处掐死);入参一个 prompt,出参只有结论文本,
@@ -183,7 +209,8 @@ task 子代理 = "把再建一个 Agent 实例包装成工具":子代理拿同�
 
 三个实现细节:
 
-- **token 估算用字符数/3**,不引 tokenizer —— 阈值本身粗粒度,精确计数是伪需求;
+- **token 估算用字符数/3 兜底**,触发判定优先用流式聚合抓到的真实 prompt_tokens
+  —— est 只做恢复首轮兜底;不引 tokenizer,阈值本身粗粒度,精确计数是伪需求;
 - **切分点保护**:截断点不能落在 `assistant(tool_use) → user(tool_result)`
   对中间,否则保留区出现孤儿 tool_result,API 直接 400;切分点向后滑到
   非 tool_result 开头为止;
@@ -212,36 +239,43 @@ file_exists / file_contains / max_steps。
 | 维度 | deepagents 版 | 手写版 | 迁移换来 |
 |---|---|---|---|
 | 消息协议 | LangChain 对象 ↔ dict 双向转换 | Anthropic 原生 dict 直通 | 转换层归零,落盘即请求体 |
-| loop | LangGraph 节点图,黑盒执行 | 约 110 行生成器,全透明 | 排障不用读框架源码 |
-| 流式 | stream_mode 双流 + chunk 续片修补 | SDK 原始事件 + 30 行聚合 | 事件语义自己定义 |
-| 压缩 | SummarizationMiddleware 配置项 | 50 行,含孤儿结果保护 | 行为可审计 |
-| 依赖 | langchain+langchain-anthropic+deepagents+mcp+… | anthropic+mcp+croniter+textual | 安装体积、升级风险大降 |
-| 代码量 | 核心 ~800 行(多为装配) | 核心 ~700 行(全是机制) | 行数近似,内容全换 |
+| loop | LangGraph 节点图,黑盒执行 | 约 320 行生成器(环 20 行 + 聚合/打断/账本),全透明 | 排障不用读框架源码 |
+| 流式 | stream_mode 双流 + chunk 续片修补 | 裸 httpx 手解 SSE + 30 行聚合 | 事件语义自己定义,SDK 对象这层也归零 |
+| 压缩 | SummarizationMiddleware 配置项 | 140 行,含孤儿结果保护/防抖熔断 | 行为可审计 |
+| 依赖 | langchain+langchain-anthropic+deepagents+mcp+… | httpx+mcp+croniter(TUI 已不用 textual) | 安装体积、升级风险大降 |
+| 代码量 | 核心 ~800 行(多为装配) | core/ ~1500 行(全是机制) | 行数换来的是能力面:goal/插件/分发 |
 
 迁移验证了一个判断:**框架的价值密度随项目成熟而衰减**。起步时中间件开箱即用
-是净收益;到调优排障阶段,隔着抽象层的每个坑都比自己写的代码贵。值得从框架
-保留的只有两样:anthropic SDK(协议实现,手写不值)和 mcp SDK(协议客户端,
-手写不值)—— **依赖协议实现,不依赖编排框架**。
+是净收益;到调优排障阶段,隔着抽象层的每个坑都比自己写的代码贵。协议这条线
+后来又往前走了一步:anthropic SDK 也换成了裸 httpx 直调 `/v1/messages` ——
+SDK 拖着 pydantic 一大家子,Windows 上(安全软件过滤驱动放大每文件打开开销)
+导入 6s+,冷启动 6s→0.4s;手解 SSE 只有 30 行,还顺带把"事件即协议原生
+dict"贯彻到底,连"SDK 对象 ↔ dict"这一层转换也归零。现在整个依赖面只剩
+mcp SDK(JSON-RPC 握手手写不值)—— **依赖协议,不依赖协议库,更不依赖编排
+框架**。
 
 ## 7. 一分钟版本(电梯陈述)
 
 > 我做了一个编码 agent,第一版基于 deepagents,后来把框架整个拿掉,loop、
-> 工具、压缩全部手写,核心七百行。三个决策值得说:① 消息协议用 Anthropic
-> 原生格式直通全链路,模型、会话、回放看同一份数据,零转换层;② agent loop
-> 就是"调模型、有 tool_use 就回填 tool_result、直到没有"这 20 行,真正的
-> 工程量在流式聚合和错误即文本的自愈设计;③ 上下文管理三层防线——工具结果
-> 截断、80k token 改写式压缩(选型由持久化模型决定:没有 checkpointer 就选
-> 天然落盘的方案)、长期记忆走 AGENTS.md 文件。评测用例即数据、检查产物不
-> 检查话术,进化闭环抄 Penguin 的纪律:快照回滚、严格提升才保留。
+> 工具、压缩全部手写,现在连模型 SDK 都不要了,裸 httpx 直调接口,core 一千
+> 五百行。三个决策值得说:① 消息协议用 Anthropic 原生格式直通全链路,模型、
+> 会话、回放看同一份数据,零转换层;② agent loop 就是"调模型、有 tool_use
+> 就回填 tool_result、直到没有"这 20 行,真正的工程量在流式聚合、协作式打断
+> 和错误即文本的自愈设计;③ 上下文管理三层防线——工具结果截断、按窗口比例
+> 触发的改写式压缩(选型由持久化模型决定:没有 checkpointer 就选天然落盘的
+> 方案)、长期记忆走 AGENTS.md 文件。外围还长了 goal 自动续跑、能力插件缝、
+> PyInstaller+npm 分发。评测用例即数据、检查产物不检查话术,进化闭环抄
+> Penguin 的纪律:快照回滚、严格提升才保留。
 
 ## 8. 话术版:追问怎么答
 
 ### 8.1 "你的 agent loop 是怎么设计的?"(主答,约 2 分钟)
 
-"Loop 是我自己写的,总共一百来行,核心就一句话:**调模型,消息里有 tool_use
+"Loop 是我自己写的,三百来行,核心就一句话:**调模型,消息里有 tool_use
 就执行工具、把 tool_result 作为 user 消息回填,再调模型,直到模型不再要求
-调用工具**。这个环本身只有二十行,我反而觉得这是这次重写最大的认知收获——
-框架把 agent 讲得很神秘,拆开看核心就是这一段,工程量全在环上的三件事:
+调用工具**。这个环本身只有二十行,长出来的三百行全是工程件——流式聚合、
+打断、账本,每一件都对应一个实测踩过的坑。框架把 agent 讲得很神秘,拆开看
+核心就是这一段,工程量全在环上的三件事:
 
 第一,**流式聚合**。模型的回复是 SSE 事件流,content 块是分片到达的:正文和
 思考按块累加,工具入参是分片的 JSON 字符串要按块拼接、块结束时一次 parse。
@@ -252,14 +286,14 @@ file_exists / file_contains / max_steps。
 不抛异常。模型看到错误文本会自己修正参数重试,实测过子代理入参发错、下一轮
 自己纠正。直接抛异常等于把 agent 的自愈机制掐死。
 
-第三,**UI 和 loop 的解耦**。stream 是个生成器,一边跑循环一边 yield 四种
-事件:思考增量、正文增量、工具开始、工具结果。TUI 消费事件做流式渲染,
-无头模式直接忽略事件拿最终结果,loop 对两边无感知。
+第三,**UI 和 loop 的解耦**。stream 是个生成器,一边跑循环一边 yield 事件
+元组:思考增量、正文增量、工具开始/结果、真实 token、压缩、打断。TUI 消费
+事件做渲染,无头模式直接忽略事件拿最终结果,loop 对两边无感知。
 
-上下文管理是三层防线:单工具结果 20k 字符截断、80k token 触发摘要压缩、
-长期记忆走 AGENTS.md 文件不占窗口。压缩我选了改写式——直接把老历史换成一条
-摘要——原因是持久化模型:我的会话就是 JSON 文件覆盖写,没有 checkpointer,
-改写式的结果天然就在 messages 里,落盘恢复零依赖。"
+上下文管理是三层防线:单工具结果 200k 字符截断、按窗口比例触发的摘要压缩
+(代码默认 120k)、长期记忆走 AGENTS.md 文件不占窗口。压缩我选了改写式——
+直接把老历史换成一条摘要——原因是持久化模型:我的会话就是 JSON 文件覆盖写,
+没有 checkpointer,改写式的结果天然就在 messages 里,落盘恢复零依赖。"
 
 **可能追问:**
 
@@ -267,21 +301,26 @@ file_exists / file_contains / max_steps。
   排障成本:工具入参聚合出问题时,要跨我的代码、middleware、LangGraph 三层
   去查,而 bug 往往在我想不到的层;二是叙事和可控:这是个人项目,价值在
   证明我理解机制本身,框架把机制藏起来,代码薄了但知识也薄了;三是依赖面:
-  langchain 全家桶的升级风险和安装体积,换成只剩 anthropic + mcp 两个协议
-  依赖。我的判断是:框架的价值密度随项目成熟而衰减,起步时中间件开箱即用
+  langchain 全家桶的升级风险和安装体积,换成 httpx + mcp;后来连 anthropic
+  SDK 都拿掉了,Windows 冷启动从 6 秒降到 0.4 秒。我的判断是:框架的价值密度
+  随项目成熟而衰减,起步时中间件开箱即用
   是净收益,到调优阶段抽象层就成了负债。"
 - *"自己写会不会重新踩一遍框架踩过的坑?"* —— "会,而且我就是要踩一遍,
   每个坑现在都是我代码里一行注释:thinking 签名回传、孤儿 tool_result 的
   切分点保护、分片 JSON 聚合。区别是框架替我踩坑但把知识也藏了,现在坑在
-  我自己的代码里,带着注释。总量没变多少——核心七百行——但每一行我都
+  我自己的代码里,带着注释。总量没变多少——core 一千五百行——但每一行我都
   知道为什么存在。"
-- *"哪些部分你坚决不自己写?"* —— "协议实现。anthropic SDK 管流式和重试,
-  mcp SDK 管 JSON-RPC 握手,手写不值也不该值。我画的线是:**依赖协议实现,
-  不依赖编排框架**。编排是我这个项目的核心知识,恰恰要自己握着。"
+- *"哪些部分你坚决不自己写?"* —— "mcp SDK,它管 JSON-RPC 握手和 stdio/http
+  传输,手写不值。但 anthropic SDK 我后来也拿掉了——它对我唯一的价值是一个
+  POST 端点和 SSE 解析,几十行就有了,还顺带把'事件即协议原生 dict'贯彻到底。
+  我画的线是:**依赖协议,不依赖编排框架;协议实现本身值不值得手写,由它的
+  体积和你需要它的深度决定**。编排是我这个项目的核心知识,恰恰要自己握着。"
 - *"没有框架,功能有缺吗?"* —— "对齐清单我逐项核过:流式 thinking/正文、
-  工具调用、子代理、MCP、skills、记忆、压缩、会话恢复、无头模式,全量保留。
-  真正丢的只有两样:子代理默认不载 MCP 工具(防递归,要加是传个参数的事),
-  和 deepagents 的历史 offload(我落盘更简单,全量在 session 文件里)。"
+  工具调用、子代理、MCP、skills、记忆、压缩、会话恢复、无头模式,全量保留,
+  还长出了框架没有的:goal 自动续跑(宿主注入投影+预算闸)、能力插件缝、
+  hermes 语义的协作式打断、PyInstaller+npm 分发。真正丢的只有两样:子代理
+  默认不载 MCP 工具(防递归,要加是传个参数的事),和 deepagents 的历史
+  offload(我落盘更简单,全量在 session 文件里)。"
 
 ### 8.2 "评测怎么做的?"(主答,约 90 秒)
 
@@ -309,8 +348,34 @@ agent 把结果写进文件,断言文件内容,过程只留 max_steps 一条效�
   百行脚本足够;框架等用例规模和并行需求真到了再引入。既然 loop 都手写了,
   评测更没有理由背框架。"
 
+### 8.3 "除了 loop 还有什么工程含量?"(主答,约 90 秒)
+
+"四块,都是真实需求长出来的,不是堆功能:
+
+- **goal 模式**(codex ext/goal 语义):/goal 设目标后宿主自动续跑 ——
+  每轮末尾注入续跑投影 user 消息(压缩免疫),模型用 update_goal 申报
+  complete/blocked/paused,轮数预算耗尽转 paused。状态真身是宿主侧 dict,
+  工具闭包共享同一引用,零同步代码。
+- **能力插件缝**:插件 = 一个 .py 暴露 register(workdir)->list[Tool],
+  ZANY_PLUGINS 选用,import 失败降级不崩启动 —— 不做基类/manifest/registry,
+  环境变量 + Python import 就是全部仪式。
+- **分发**:PyInstaller onefile 打三平台二进制,经 npm 平台包
+  optionalDependencies 分发(codex 同款),frozen 路径收口在一个文件;
+  顺带踩掉了 Windows GBK 这类真实坑(所有 open 必须 encoding='utf-8')。
+- **Windows 终端读键**:ConPTY 扩展键是 \x00 前缀+键码两段 getwch,前缀
+  不当场补取第二段就全键冻结(含 Ctrl-C);conhost 粘贴无系统通道,
+  ctypes 读剪贴板(HANDLE 64 位 restype)。这类坑只有手写才见得到。"
+
+**可能追问:**
+
+- *"goal 模式怎么防失控?"* —— "三道闸:轮数预算耗尽转 paused 而不是硬停;
+  打断/异常轮不续跑;模型不许自作主张 pause,blocked 还要求同一阻塞条件
+  连续 3 轮才能申报。优先级永远是排队用户文本 > cron > goal。"
+
 ## 9. 路线图
 
 1. **评测侧**:rubric LLM judge → 多 run 稳定性 → evolve.py 进化闭环;
-2. **能力侧**:工具调用白名单 + interrupt 审批(Tool 形态统一后是纯增量);
-3. **可观测**:每轮 token/成本/时长进 session 文件,评测报告带成本维度。
+2. **能力侧**:工具调用白名单 + 审批模式(Tool 形态统一后是纯增量;
+   hermes 语义的协作式 interrupt 已落地:两段式 Ctrl-C + partial 保留);
+3. **分发侧**:npm 首发收尾(NPM_TOKEN secret 配好即可走 Actions release);
+4. **可观测**:每轮 token/成本/时长进 session 文件,评测报告带成本维度。
