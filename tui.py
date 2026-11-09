@@ -358,6 +358,39 @@ class Term:
         except (OSError, ValueError):  # 假终端/无 fileno: 按"无后续"处理
             return False
 
+    def paste_clipboard(self) -> str:
+        """Win 剪贴板文本。conhost 关 PROCESSED_INPUT 后 Ctrl+V 不再触发系统粘贴,
+        键层把它读成 PASTE_CLIP, 由这里取文本回填(非 win 恒空)。"""
+        if not self._is_win:
+            return ""
+        import ctypes
+        u32 = ctypes.windll.user32
+        k32 = ctypes.windll.kernel32
+        # 64 位下 HANDLE 是 8 字节, windll 默认 restype 是 32 位 int, 不设类型会截断句柄炸进程
+        u32.OpenClipboard.argtypes = [ctypes.c_void_p]
+        u32.GetClipboardData.argtypes = [ctypes.c_uint]
+        u32.GetClipboardData.restype = ctypes.c_void_p
+        k32.GlobalLock.argtypes = [ctypes.c_void_p]
+        k32.GlobalLock.restype = ctypes.c_void_p
+        k32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+        if not u32.IsClipboardFormatAvailable(13):  # CF_UNICODETEXT, 查格式无需打开
+            return ""
+        if not u32.OpenClipboard(None):
+            return ""
+        try:
+            h = u32.GetClipboardData(13)
+            if not h:
+                return ""
+            p = k32.GlobalLock(h)
+            if not p:
+                return ""
+            try:
+                return ctypes.c_wchar_p(p).value or ""
+            finally:
+                k32.GlobalUnlock(h)
+        finally:
+            u32.CloseClipboard()
+
     def _parse_posix(self) -> str | None:
         """_pend → 一个完整键; 不完整返回 None(等更多字节), 垃圾序列丢弃。"""
         p = self._pend
@@ -443,8 +476,8 @@ class Term:
             return {"H": "UP", "P": "DOWN", "K": "LEFT", "M": "RIGHT",
                     "G": "HOME", "O": "END", "S": "DEL"}.get(p[1], "")
         if c == "\x1b":
-            # bracketed paste 标记(Windows Terminal/ConPTY 认 ?2004h); 不认识的
-            # ESC 序列整体丢弃。ponytail: 标记分片到达超 50ms 宽限就弃, 退化为逐行粘贴
+            # bracketed paste 标记(Windows Terminal/ConPTY 认 ?2004h); ponytail:
+            # 标记分片到达超 50ms 宽限就弃, 退化为逐行粘贴
             deadline = time.monotonic() + 0.05
             while len(p) < 6 and "\x1b[200~\x1b[201~".find(p) >= 0:  # 还是标记前缀: 等
                 if _win_key_ready():
@@ -460,7 +493,32 @@ class Term:
             if p.startswith("\x1b[201~"):
                 self._pend = p[6:]
                 return "PASTE_OFF"
-            self._pend = ""
+            # 部分 ConPTY/终端把方向键以 VT 序列塞进 console buffer(msvcrt 读到
+            # 字符流而非 \xe0 扩展键, PyCharm 终端实测), 不解析则上下左右/ESC 全被丢
+            while len(p) < 3 and p in ("\x1b", "\x1b[", "\x1bO"):
+                if _win_key_ready():
+                    self._pend += msvcrt.getwch()
+                    p = self._pend
+                elif time.monotonic() >= deadline:
+                    break
+                else:
+                    time.sleep(0.005)
+            if p == "\x1b":
+                self._pend = ""
+                return "ESC"  # 孤按 ESC(picker 取消键), 不再静默丢弃
+            if len(p) >= 3 and p[1] == "[":
+                if p[2] in "ABCDHF":
+                    self._pend = p[3:]
+                    return {"A": "UP", "B": "DOWN", "C": "RIGHT", "D": "LEFT",
+                            "H": "HOME", "F": "END"}[p[2]]
+                if p.startswith("\x1b[3~"):
+                    self._pend = p[4:]
+                    return "DEL"
+            if len(p) >= 3 and p[1] == "O":
+                self._pend = p[3:]
+                return {"H": "HOME", "F": "END", "A": "UP", "B": "DOWN",
+                        "C": "RIGHT", "D": "LEFT"}.get(p[2], "")
+            self._pend = ""  # 不认识的 ESC 序列连 buffer 余量整体丢弃, 防尾巴漏成字符
             return ""
         self._pend = p[1:]
         if c == "\x03":
@@ -471,7 +529,8 @@ class Term:
             return "BS"
         # ctrl 系编辑键与 POSIX _parse_posix 同表(ctrl+z 撤销/ctrl+a/e/k/u/w)
         return {"\x01": "HOME", "\x05": "END", "\x0b": "KILL_END",
-                "\x15": "KILL_BEG", "\x17": "KILL_WORD", "\x1a": "UNDO"}.get(c, c)
+                "\x15": "KILL_BEG", "\x17": "KILL_WORD", "\x1a": "UNDO",
+                "\x16": "PASTE_CLIP"}.get(c, c)
 
 
 # ---- 输入编辑器(多行, claude 最小键位集) ----
@@ -853,6 +912,14 @@ class ZanyTui:
         if key == "ESC" and self._pending_pick is not None:
             self._pending_pick = None  # picker 取消
             self._dirty = True
+            return
+        if key == "PASTE_CLIP":  # conhost 关 processed input 后 ctrl+v 走这里取剪贴板
+            t = self.term.paste_clipboard()
+            if t:
+                self.ed.handle("PASTE_ON")
+                self.ed.insert(t)
+                self.ed.handle("PASTE_OFF")
+                self._dirty = True
             return
         if key in ("\r", "\n"):  # \n 兼底: 没关掉 ICRNL 的环境 Enter 会变 \n
             if self.ed.pasting:
