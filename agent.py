@@ -33,8 +33,12 @@ if IS_FROZEN:  # Windows 控制台默认 GBK, 遇 utf-8 字符 print 崩 → 错
 
 from core.frozen import IS_FROZEN, app_root, data_dir
 
-# --- .env (源码=项目目录, frozen=~/.zany/.env) ---
-ENV_PATH = data_dir() / ".env"
+# --- .env (frozen=~/.zany/.env; 源码=仓库根优先, 缺则 ~/.zany/.env 兑底) ---
+if IS_FROZEN:
+    ENV_PATH = data_dir() / ".env"
+else:
+    _repo_env = Path(__file__).resolve().parent / ".env"
+    ENV_PATH = _repo_env if _repo_env.is_file() else Path.home() / ".zany" / ".env"
 if ENV_PATH.is_file():
     for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
         line = line.strip()
