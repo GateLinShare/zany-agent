@@ -65,3 +65,15 @@
 **修复**(`tui2.py`, 两层): ① `_win_setup` 输入模式在原基础上再清 ENABLE_WINDOW_INPUT/ENABLE_MOUSE_INPUT(0x8/0x10), 从源头不生成非键记录; ② 新增 `_win_key_ready()`: PeekConsoleInputW 只认头部 KEY_EVENT(bKeyDown), 非键记录顺手 ReadConsoleInput 丢弃, 读键循环用它替代 `msvcrt.kbhit()` —— getwch 只在确认有真键时才调, 两种 kbhit 语义下都不会再阻塞。
 
 **教训**: msvcrt.kbhit/getwch 这对搭档对"缓冲里有记录"和"有可读按键"不是一回事, 合成终端(conpty/PyCharm)还会额外注入 FOCUS 等记录; Windows 手写读键要么走 Peek 自验, 要么把 mouse/window 输入模式关干净, 不能只信 kbhit。另: 在共享控制台里注入按键做实验不可靠(有别的读取者抢记录, 会凭空多出/丢字符), 键路径验证以真实终端为准。
+
+## 2026-11-09 /resume 弹层后全键冻结(方向键/回车/ctrl+c 都没反应)（tui.py）
+
+**现象**: PyCharm 终端里 /resume 弹出会话选择列表后, 上下方向键、回车、打字、ctrl+c 全部无响应, 进程还活着; 主界面(未进弹层前)输入正常; 老版 Textual TUI(legacy/tui_textual.py)同终端没问题。
+
+**定位**: 用 ConPTY 驱动 harness(tmp/pty_drive.py: CreatePseudoConsole 起真 TUI 子进程 + WriteFile 喂键 + 抓输出)在标准 ConPTY 下复现了完整症状 → 确认不是 PyCharm 特有, 是 ConPTY 系终端共性。再开 `ZANY_TUI_TRACE=tmp\tui_trace.txt` 落盘探针(read_key 每步写文件), 抓到死循环实锤: 21 万行 `raw='\x00'`, 即同一个字节永远卡在缓冲里。
+
+**根因**: ConPTY 下方向键以两段 getwch 到达: 第一段 `'\x00'` 前缀(老 console 是 `\xe0`), 第二段键码 `'K'` 在 **getwch 的内部缓存**里(同一条 KEY_EVENT 拆的, 不再读 console buffer)。原代码读到前缀走"凑齐再解": `len(p)<2 → return None` 留到下圈补; 但下圈 `_pend` 非空就**跳过 getwch**, 第二段永远没人取 → 主循环每圈 read_key 返回 None, 后续所有键(含 ctrl+c)全卡在 console buffer 里没人读 → 全键冻结。老版 Textual 没事正因为它用 ReadConsoleInputW 直读完整 KEY_EVENT 结构, 一条记录就是一个完整按键, 没有两段拼凑。
+
+**修复**(`tui.py` `_read_key_win` 扩展键分支): 前缀后**当场补取**第二段 `self._pend = p + msvcrt.getwch()` —— 第二段在 getwch 内部缓存命中, 不读新记录不阻塞。"分两段的东西不能留到下圈"是这类缓存拼凑的通用坑: 下圈的入口条件(pend 非空不读)和上一圈的出口条件(不完整先还回去)互相顶死。
+
+**教训**: ① GUI 终端(PyCharm/ConPTY)读键问题必须可复现再修 —— ConPTY harness 让"猜终端行为"变成"跑一遍看探针", 修前修后都能机器验证; ② msvcrt.getwch 对功能键是"前缀+键码"两段调用, 第二段藏在内部缓存, PeekConsoleInput 看不到它, 任何"等下一圈"的凑齐逻辑都会死锁; ③ 落盘探针(ZANY_TUI_TRACE, env 门控零开销)是穿透 GUI 终端迷雾的标准手段, 比 print 到 stderr 可靠(合成终端的 stderr 也可能被吞)。
