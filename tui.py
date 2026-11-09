@@ -1,34 +1,35 @@
 #!/usr/bin/env python3
-"""唯一入口 —— 交互走 Textual TUI, -p 走无头模式(供后台/脚本调用, 同 claude -p)。
+"""zany 交互 TUI(claude 式重构版) —— 原 Textual 全屏版在 legacy/tui_textual.py。
+
+架构 = claude code/Ink 同款(它能在 Windows 跑的原因就这一条):
+- 烙定区(baked): 定稿内容逐块 print 进终端原生滚动回带, 永不重绘 —— rich 渲染
+  (markdown/工具行/用户消息条), 零光标操作, 任何终端都稳。
+- 活动区(live): 屏幕底部一帧 = 流式预览尾 + spinner 行 + 输入框 + 工具条,
+  每次变化整帧原地重绘(光标上移 N 行 + 清到底重写), 只用 CUU/ED/CHA 三种 ANSI。
+- 单写者: 主循环独占全部终端输出; agent.stream 跑在 worker 线程只改共享状态,
+  终端里永远不会有两股输出打架。
+
+无头模式(-p)语义不变。
 
 Usage:
     uv run tui.py                # 交互 TUI
-    uv run tui.py -p "问题"      # 无头单次提问, 打印回复退出
-    ... | uv run tui.py -p       # prompt 从 stdin 读
-
-交互逻辑（MCP 热重载 / 每轮落盘 / cron 唤醒 / goal 续跑 / fork 恢复）都在 TUI 里,
-agent.invoke 放后台线程跑, UI 不卡; 同一轮没跑完先排队。
+    uv run tui.py -p "问题"      # 无头单次
+    uv run tui.py -r [会话id]    # 恢复会话(不带 id = 最近一个)
 """
 
 import json
 import os
 import queue
 import re
-import signal
+import shutil
 import sys
+import threading
 import time
 from pathlib import Path
 
-from rich.console import Group
+from rich.console import Console, Group
 from rich.markdown import Markdown
 from rich.text import Text
-from textual import work
-from textual.app import App, ComposeResult
-from textual.binding import Binding
-from textual.message import Message
-from textual.screen import ModalScreen
-from textual.widgets import OptionList, RichLog, Static, TextArea
-from textual.widgets.option_list import Option
 
 from agent import build_agent, text_of
 from core.messages import user_content, est_tokens, result_text
@@ -48,17 +49,10 @@ from core.goal import (
     detach_goal,
 )
 
-# ---- 渲染约定(参考 hermes cli.py 的盒子/折叠/token 三件套) ----
-# - thinking: dim 灰逐行流式(hermes _stream_reasoning_delta), 正文到达即折叠定稿
-# - 正文: accent 标签分段, 逐段定稿(hermes _emit_stream_text 的 turn boundary flush)
-# - token: 紧凑格式(hermes format_token_count_compact 同语义) + ctx/压缩计数
-REASONING_LINES = 3  # 正文到达后 thinking 折叠保留行数
-LIVE_REASONING_LINES = 3  # live 流式区 thinking 只显示尾部几行, 防长思考刷屏
+# ---- 渲染约定(与 tui.py 同源: hermes 盒子/折叠/token 三件套 + claude 配色) ----
+REASONING_LINES = 3
+LIVE_REASONING_LINES = 3
 
-# markdown 标题对齐 Claude Code: 白粗体, 去掉 rich 默认的品红下划线(h2=underline magenta)。
-# 覆盖点必须是 rich.themes.DEFAULT.styles(单例 Theme, 所有 Console 的 ThemeStack 底层共用):
-# - 改 rich.default_styles.DEFAULT_STYLES 字典无效——DEFAULT 在 import 时就 copy 走了
-# - 值必须 Style.parse(): Theme.styles 存 Style 对象, 塞 str 会在 get_style 崩(无 .link)
 from rich.style import Style
 from rich.themes import DEFAULT as _RICH_DEFAULT_THEME
 
@@ -67,8 +61,6 @@ for _lvl in ("h1", "h2", "h3", "h4"):
 
 
 def fmt_tokens(n: int) -> str:
-    """token 紧凑格式, hermes format_token_count_compact 同语义:
-    <1000 原数; 否则 K/M/B 三档, <10 两位小数, <100 一位, 去尾零。"""
     n = int(n)
     if abs(n) < 1000:
         return str(n)
@@ -83,74 +75,23 @@ def fmt_tokens(n: int) -> str:
 
 
 def ctx_bar(tin: int) -> str:
-    """状态栏 ctx 条(hermes _build_context_bar/_status_bar_context_style 同款):
-    10 格进度条按占用率变色(<50 绿/50-80 黄/>80 橙/≥95 红) + 已用/上限 + 百分比。"""
-    ctx_max = int(os.environ.get("ANTHROPIC_CONTEXT_TOKENS", "200000"))  # ponytail: 静态窗口, 端点不暴露
+    ctx_max = int(os.environ.get("ANTHROPIC_CONTEXT_TOKENS", "200000"))
     pct = min(100, round(tin / ctx_max * 100)) if tin else 0
     style = "red" if pct >= 95 else "dark_orange" if pct > 80 else "yellow" if pct >= 50 else "green"
     filled = round(pct / 100 * 10)
     return f"[{style}]{'█' * filled}{'░' * (10 - filled)}[/] {fmt_tokens(tin)}/{fmt_tokens(ctx_max)} · {pct}%"
 
 
-# 工具行样式映射(hermes agent/display.py get_cute_tool_message): emoji + 动词
 TOOL_VERB = {
     "ls": ("📂", "ls"), "read_file": ("📖", "read"), "write_file": ("✍️", "write"),
     "edit_file": ("🔧", "edit"), "execute": ("💻", "exec"), "task": ("⛓", "task"),
 }
 
-
-CMD_CLIP = 60  # 命令/prompt 单行显示宽度上限(用户定 60, 前后缀另占~24列): 超出尾部 …
-
-# ---- 键位表(Claude Code 同构): 键 -> app action 的间接层 ----
-# action 名对齐 Claude(app.interrupt/app.exit, textual 的 namespace 语法是点号,
-# 用户从 Claude 抄的冒号写法 load 时自动转); 用户可用 ~/.zany/keybindings.json
-# 覆盖(形状兼容 Claude 的文件, 可直接拷), 值 null/"" = unbind。只此一层 context,
-# 全局生效; 未知 action / 坏 JSON 记 issue 不炸启动。
-DEFAULT_KEYBINDINGS = {"ctrl+c": "app.interrupt", "ctrl+d": "app.exit"}
-KNOWN_ACTIONS = ("app.interrupt", "app.exit")
-EXIT_WINDOW = 2.0  # 双击退出计时窗(秒): 超时重置 pending, 防误触连击直接退
-_ACTION_ALIASES = {"app:interrupt": "app.interrupt", "app:exit": "app.exit"}
-
-
-def load_keybindings(path: Path | None = None) -> tuple[dict[str, str], list[str]]:
-    """读 ~/.zany/keybindings.json 覆盖默认键位, 返回 (键->action, 问题列表)。
-
-    兼容两种形状: Claude 的 [{"context":"Global","bindings":{...}}] 与直接的
-    {"ctrl+c":"app:interrupt"}。context 字段忽略(zany 只有全局一层)。"""
-    table = dict(DEFAULT_KEYBINDINGS)
-    p = path or Path.home() / ".zany" / "keybindings.json"
-    try:
-        raw = json.loads(p.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return table, []
-    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as e:
-        return table, [f"读取失败, 沿用默认键位: {e}"]
-    entries = raw if isinstance(raw, list) else [raw] if isinstance(raw, dict) else None
-    if entries is None:
-        return table, [f"格式不对(应为数组或对象), 沿用默认键位: {raw!r:.80}"]
-    issues: list[str] = []
-    for entry in entries:
-        if not isinstance(entry, dict):
-            issues.append(f"跳过非对象条目: {entry!r:.80}")
-            continue
-        # Claude 形状取 bindings 子对象; 直接对象形状(无 bindings 键)视自身为键位表
-        body = entry.get("bindings") if isinstance(entry.get("bindings"), dict) else entry
-        for key, action in body.items():
-            if key == "context":  # 只此全局一层, context 字段忽略
-                continue
-            k = str(key).lower()
-            action = _ACTION_ALIASES.get(action, action)  # 冒号写法 → textual 点号
-            if action in (None, ""):
-                table.pop(k, None)  # unbind: 显式删除该键
-            elif action in KNOWN_ACTIONS:
-                table[k] = action
-            else:
-                issues.append(f"未知 action {action!r} (键 {key}), 已跳过")
-    return table, issues
+CMD_CLIP = 60
+EXIT_WINDOW = 2.0  # ctrl+c 双击退出计时窗(秒)
 
 
 def _clip(s: str, n: int = CMD_CLIP) -> str:
-    """按显示宽截断(中文算 2 列, rich.cells 口径), 尾部加 …。"""
     from rich.cells import cell_len
 
     if cell_len(s) <= n:
@@ -161,10 +102,6 @@ def _clip(s: str, n: int = CMD_CLIP) -> str:
 
 
 def tool_line(name: str, args: dict, dur: float, output: str) -> str:
-    """工具完成行: `┊ {emoji} {工具名:<9} {关键参数}  {耗时}`, 失败变红。
-    命令/prompt 截到一行(用户定: 不全显, 防折行刷屏); 路径尾部截断;
-    先 escape 再截断 —— markup=True 环境里任意文本必须转义(命令含 [a-z]
-    之类会被当样式标签), 且转义后截断宽度才确定。"""
     from rich.markup import escape
 
     emoji, verb = TOOL_VERB.get(name, ("⚡", name))
@@ -177,38 +114,32 @@ def tool_line(name: str, args: dict, dur: float, output: str) -> str:
         detail = ("..." + p[-32:]) if len(p) > 35 else p
     err = output.startswith("错误:")
     detail = f"[red]{escape(detail)}[/red]" if err else escape(detail)
-    fail = "[red]✗ 失败[/red]" if err else ""
-    durs = f"  [dim]{dur:.1f}s[/dim]" if dur else ""  # 回放无耗时数据, 传 0 不显
+    fail = "[red]× 失败[/red]" if err else ""  # × 而非 ✗: 同 ❯/✻, dingbat 区无字形
+    durs = f"  [dim]{dur:.1f}s[/dim]" if dur else ""
     return f"[dim]┊[/] {emoji} {verb:<9} {detail}{durs}{fail}"
 
 
 def _fold_thinking(think: str) -> str:
-    """thinking 折叠: 超 REASONING_LINES 行截断加省略行(样式由调用方套)。"""
     lines = think.strip().splitlines()
     if len(lines) > REASONING_LINES:
         return "\n".join(lines[:REASONING_LINES]) + f"\n… 还有 {len(lines) - REASONING_LINES} 行 thinking"
     return think.strip()
 
 
-SHOW_THINKING = os.environ.get("SHOW_THINKING", "0").lower() in ("1", "true", "yes", "on")  # .env 可配, 默认不显示
+SHOW_THINKING = os.environ.get("SHOW_THINKING", "0").lower() in ("1", "true", "yes", "on")
 
-
-_MD_STRUCT = re.compile(r"^\s*(?:[#>|`]|```|[-*+ ]|\d+[.)])")  # 首行是这些开头时不切出, 保结构
+_MD_STRUCT = re.compile(r"^\s*(?:[#>|`]|```|[-*+ ]|\d+[.)])")
 
 
 def _turn_renderable(think: str, body: str, fold: bool = False, md: bool = True):
-    """一轮流式内容渲染成 Rich 组合, live 区和 chatlog 定稿共用同一样式。
-    Claude Code 风格(抄它的配色与层级): thinking 树形缩进(dark_khaki),
-    正文 `名字> ` 引导行 + markdown 定稿渲染(md=True) / 纯文本粗排(md=False)。"""
     parts = []
-    if think.strip() and SHOW_THINKING:  # .env SHOW_THINKING=0 时 UI 不渲染 thinking(数据层仍全量记录)
+    if think.strip() and SHOW_THINKING:
         collapsed = fold or bool(body.strip())
-        n = max(1, len(think) // 3)  # ~tokens 粗估, est_tokens 同口径(chars/3)
+        n = max(1, len(think) // 3)
         parts.append(Text("⌐ ▼ Thinking", style="dark_khaki")
                      + Text(f" ~{n} tokens", style="dim dark_khaki"))
         content = _fold_thinking(think) if collapsed else think.strip()
         lines = content.splitlines()
-        # 树形缩进: 首行挂 ⌐, 其余行对齐到下一层
         parts.append(Text(
             "\n".join(f"  ⌐ {lines[0]}" if i == 0 else f"    {l}"
                       for i, l in enumerate(lines)),
@@ -216,14 +147,12 @@ def _turn_renderable(think: str, body: str, fold: bool = False, md: bool = True)
     if body.strip():
         lines = body.strip().splitlines()
         first, rest = lines[0], "\n".join(lines[1:])
-        head = not (think.strip() and SHOW_THINKING)  # Thinking 行不在时, ● 即段头标识
+        head = not (think.strip() and SHOW_THINKING)
         if _MD_STRUCT.match(first):
-            # 首行是 markdown 块结构(表格/标题/引用/代码围栏/列表), 切出会断结构 → 圆点独立行
             if head:
                 parts.append(Text("●", style="#d4d4d4"))
             parts.append(Markdown(body.strip()) if md else Text(body.strip(), style="#d4d4d4"))
         else:
-            # Claude 同款: 圆点+首句同行, 续行整块进 markdown 顶格
             dot = Text("● ", style="#d4d4d4") if head else Text("")
             parts.append(dot + Text(first, style="#d4d4d4"))
             if rest:
@@ -231,249 +160,817 @@ def _turn_renderable(think: str, body: str, fold: bool = False, md: bool = True)
     return Group(*parts) if parts else Text("")
 
 
-class ChatPrompt(TextArea):
-    """多行输入框。回车提交; shift+enter/alt+enter/ctrl+j 换行。只捕捉文本。
+# ---- 终端底层: 原始读键 + 活动区 ANSI(手写, 不引库) ----
+# POSIX: termios 关 ECHO/ICANON/ISIG(ctrl+c 进字节流, 语义自己做);
+# Windows: msvcrt.getwch + SetConsoleMode 清 ENABLE_PROCESSED_INPUT + 开 stdout VT。
+# VT 开不出来(老 conhost)→ 退行式(烙定区照常, 活动区关)。
+ESC = "\x1b"
+_SPINNER_FRAMES = "◆◇●○·"  # GB2312 内字形: ✻✽✶✳ 这类 dingbat 在新宋体等控制台字体里渲染成方框
+_SPINNER_VERBS = ("Deliberating", "Pondering", "Scheming", "Simmering",
+                  "Noodling", "Herding", "Conjuring", "Brewing", "Vibing")
 
-    高度随内容即时重算(hermes 同款, 无去抖); 行数没变的击键不动布局。
-    ponytail: 不做粘贴连击检测——无 bracketed paste 的终端里多行粘贴会被
-    逐行提交, 现代终端(xterm.js/iTerm2/Windows Terminal)都带 bracketed paste, 不亏。"""
+C_BORDER = "\x1b[90m"
+C_PROMPT = "\x1b[95m"
+C_DIM = "\x1b[90m"
+C_TEXT = "\x1b[37m"
+C_SPIN = "\x1b[93m"
+C_WARN = "\x1b[33m"
+C_RESET = "\x1b[0m"
 
-    class Submitted(Message):
-        """回车提交, text 为完整输入(可含换行)。"""
+# Windows 控制台输入记录: msvcrt.kbhit 对 FOCUS/MOUSE 记录不可靠, getwch 吞掉
+# 非键记录后在 ReadConsoleInput 上无限阻塞(实测) —— 读键必须自己 Peek 过滤。
+if sys.platform == "win32":
+    import ctypes as _ct
 
-        def __init__(self, text: str) -> None:
-            self.text = text
-            super().__init__()
+    class _COORD(_ct.Structure):
+        _fields_ = [("X", _ct.c_short), ("Y", _ct.c_short)]
 
-    BINDINGS = [
-        Binding("shift+enter,alt+enter,ctrl+enter,ctrl+j", "newline", "换行", show=False),
-    ]
+    class _KEY_EVENT(_ct.Structure):
+        _fields_ = [("bKeyDown", _ct.c_int), ("wRepeatCount", _ct.c_ushort),
+                    ("wVirtualKeyCode", _ct.c_ushort), ("wVirtualScanCode", _ct.c_ushort),
+                    ("UnicodeChar", _ct.c_wchar), ("dwControlKeyState", _ct.c_uint)]
 
-    def __init__(self, **kwargs) -> None:
-        super().__init__(**kwargs)
-        self.cursor_blink = False  # Claude 同款: 光标常亮不闪
-        self._h = 3  # 当前高度(行), 与 CSS 初始值一致; 行数不变就不碰 styles
+    class _MOUSE_EVENT(_ct.Structure):
+        _fields_ = [("dwMousePosition", _COORD), ("dwButtonState", _ct.c_uint),
+                    ("dwControlKeyState", _ct.c_uint), ("dwEventFlags", _ct.c_uint)]
 
-    def _batch_recover(self) -> None:
-        """undo/redo 批量崩溃后的钳位兜底。"""
-        self.move_cursor(self.document.end)
-        self._build_highlight_map()
-        self.post_message(self.Changed(self))
+    class _FOCUS_EVENT(_ct.Structure):
+        _fields_ = [("bSetFocus", _ct.c_int)]
 
-    def action_undo(self) -> None:
-        try:
-            super().action_undo()
-        except ValueError:
-            # ponytail: textual 8.2.8 _undo_batch 先缩文档再 _refresh_size, 滚动条
-            # watcher 拿旧光标查换行表越界(撤销/重做大段粘贴必崩); 上游升级后可删
-            self._batch_recover()
+    class _EVENT_U(_ct.Union):
+        _fields_ = [("KeyEvent", _KEY_EVENT), ("MouseEvent", _MOUSE_EVENT),
+                    ("FocusEvent", _FOCUS_EVENT)]
 
-    def action_redo(self) -> None:
-        try:
-            super().action_redo()
-        except ValueError:
-            self._batch_recover()
+    class _WIN_INPUT_RECORD(_ct.Structure):
+        _fields_ = [("EventType", _ct.c_ushort), ("Event", _EVENT_U)]
 
-    async def _on_key(self, event) -> None:
-        if event.key == "enter":
-            event.prevent_default()
-            event.stop()
-            text = self.text.strip()
-            if text:
-                self.post_message(self.Submitted(text))
-            self.clear()
+    def _win_key_ready() -> bool:
+        """输入缓冲里有没有可读的 key-down; 顺路把 FOCUS/MOUSE/SIZE 等非键记录丢掉。"""
+        k32 = _ct.windll.kernel32
+        h = k32.GetStdHandle(-10)
+        rec = _WIN_INPUT_RECORD()
+        n = _ct.c_uint32()
+        while True:
+            if not k32.PeekConsoleInputW(h, _ct.byref(rec), 1, _ct.byref(n)) or not n.value:
+                return False
+            if rec.EventType == 0x1 and rec.Event.KeyEvent.bKeyDown:
+                return True
+            if not k32.ReadConsoleInputW(h, _ct.byref(rec), 1, _ct.byref(n)):
+                return False
+else:
+    def _win_key_ready() -> bool:
+        return False
+
+
+def cells(s: str) -> int:
+    from rich.cells import cell_len
+    return cell_len(s)
+
+
+def _split_width(s: str, width: int) -> list[str]:
+    """按显示宽贪心折行(CJK 双宽), 空串返 [""]。输入区把逻辑行折成视觉行用。"""
+    if s == "":
+        return [""]
+    rows: list[str] = []
+    while cells(s) > width and width > 0:
+        cut = width
+        while cut > 1 and cells(s[:cut]) > width:
+            cut -= 1
+        rows.append(s[:cut])
+        s = s[cut:]
+    rows.append(s)
+    return rows
+
+
+class Term:
+    """终端读写/原始模式/读键。键 = 单字符或控制名(UP/BS/CTRL_C/…)。"""
+
+    def __init__(self, out=sys.stdout, inp=sys.stdin):
+        self.out = out
+        self.inp = inp
+        self.vt = False
+        self._raw_saved = None
+        self._pend = b""
+        self._is_win = sys.platform == "win32"
+
+    # ---- 生命周期 ----
+    def setup(self) -> None:
+        if not self.inp.isatty():
             return
-        await super()._on_key(event)
+        if self._is_win:
+            self.vt = self._win_setup()
+        else:
+            self.vt = self._posix_setup()
+        if self.vt:
+            self.write(f"{ESC}[?2004h")  # bracketed paste
 
-    def action_newline(self) -> None:
-        self.insert("\n")
+    def teardown(self) -> None:
+        if self.vt:
+            self.write(f"{ESC}[?2004l{ESC}[?25h")
+        if self._raw_saved is not None:
+            import termios
+            try:
+                termios.tcsetattr(self.inp.fileno(), termios.TCSADRAIN, self._raw_saved)
+            except Exception:
+                pass
 
-    # 高度随内容即时重算(hermes 同款), 行数+边框, 3~36 行封顶
-    def on_text_area_changed(self, event) -> None:
-        n = max(3, min(36, self.document.line_count + 2))
-        if n != self._h:  # 行数没变的击键不触发重排(输入法组词期内也安全)
-            self._h = n
-            self.styles.height = n
+    def _posix_setup(self) -> bool:
+        import termios, tty
+        fd = self.inp.fileno()
+        self._raw_saved = termios.tcgetattr(fd)
+        tty.setcbreak(fd)
+        attrs = termios.tcgetattr(fd)
+        attrs[3] &= ~termios.ISIG  # cbreak 留着 ISIG, 显式关掉: ctrl+c 自己读
+        # setcbreak 不动输入标志: ICRNL 会把 Enter 的 \r 翻成 \n, 必须关(实测踩过)
+        attrs[0] &= ~(termios.ICRNL | termios.INLCR | termios.IGNCR)
+        termios.tcsetattr(fd, termios.TCSANOW, attrs)
+        return True
+
+    def _win_setup(self) -> bool:
+        """stdout 开 VT(失败=活动区关); stdin 关 PROCESSED/LINE/ECHO(ctrl+c 走字节流)。"""
+        try:
+            import ctypes
+            k32 = ctypes.windll.kernel32
+            h = k32.GetStdHandle(-11)
+            mode = ctypes.c_uint32()
+            if not k32.GetConsoleMode(h, ctypes.byref(mode)):
+                return False
+            k32.SetConsoleMode(h, mode.value | 0x0004)  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+            hin = k32.GetStdHandle(-10)
+            m2 = ctypes.c_uint32()
+            if k32.GetConsoleMode(hin, ctypes.byref(m2)):
+                # 关 processed/line/echo + window/mouse: FOCUS/MOUSE 记录混进输入缓冲会让
+                # getwch 吞掉后阻塞在 ReadConsoleInput(实测踩过), 从源头不生成
+                k32.SetConsoleMode(hin, m2.value & ~0x0001 & ~0x0002 & ~0x0004 & ~0x0008 & ~0x0010)
+            return True
+        except Exception:
+            return False
+
+    # ---- 写 ----
+    def write(self, s: str) -> None:
+        self.out.write(s)
+        self.out.flush()
+
+    # ---- 读键 ----
+    def read_key(self, timeout: float | None) -> str | None:
+        if self._is_win:
+            return self._read_key_win(timeout)
+        import select
+        while True:
+            if self._pend:
+                k = self._parse_posix()
+                if k is not None:
+                    return k
+            r, _, _ = select.select([self.inp], [], [], timeout)
+            if not r:
+                # 只有孤立 ESC 时, 超时判定为单按 ESC
+                if self._pend == b"\x1b":
+                    self._pend = b""
+                    return "ESC"
+                return None
+            data = os.read(self.inp.fileno(), 4096)
+            if not data:
+                return "CTRL_D"
+            self._pend += data
+
+    def _parse_posix(self) -> str | None:
+        """_pend → 一个完整键; 不完整返回 None(等更多字节), 垃圾序列丢弃。"""
+        p = self._pend
+        if not p:
+            return None
+        b = p[0]
+        if b == 0x1B:
+            if len(p) < 2:
+                import select
+                r, _, _ = select.select([self.inp], [], [], 0.03)
+                return None if r else ("ESC" if not r else None)  # 有后续字节: 等拼齐
+            for pat, key in ((b"\x1b[A", "UP"), (b"\x1b[B", "DOWN"),
+                             (b"\x1b[C", "RIGHT"), (b"\x1b[D", "LEFT"),
+                             (b"\x1b[H", "HOME"), (b"\x1b[F", "END"),
+                             (b"\x1bOH", "HOME"), (b"\x1bOF", "END"),
+                             (b"\x1b[3~", "DEL"),
+                             (b"\x1b[200~", "PASTE_ON"), (b"\x1b[201~", "PASTE_OFF")):
+                if p.startswith(pat):
+                    self._pend = p[len(pat):]
+                    return key
+            self._pend = b""  # 不认识的序列整体丢弃, 防卡死
+            return None
+        self._pend = p[1:]
+        if b == 0x03:
+            return "CTRL_C"
+        if b == 0x04:
+            return "CTRL_D"
+        if b in (0x0D,):
+            return "\r"
+        if b in (0x7F, 0x08):
+            return "BS"
+        if b == 0x01:
+            return "HOME"
+        if b == 0x05:
+            return "END"
+        if b == 0x0B:
+            return "KILL_END"
+        if b == 0x15:
+            return "KILL_BEG"
+        if b == 0x17:
+            return "KILL_WORD"
+        if b == 0x1A:
+            return "UNDO"
+        if b == 0x0A:
+            return "\n"
+        if b == 0x09:
+            return "\t"
+        # utf-8 多字节
+        if b < 0x80:
+            return chr(b)
+        n = 2 if b < 0xE0 else 3 if b < 0xF0 else 4
+        if len(p) < n:
+            self._pend = p  # 凑齐再解
+            return None
+        try:
+            return p[:n].decode("utf-8")
+        finally:
+            self._pend = p[n:]
+
+    def _read_key_win(self, timeout: float | None) -> str | None:
+        """msvcrt 读键 → 与 _parse_posix 同一套符号名(CTRL_C/BS/UP/…)。
+        _pend 复用为 str 缓冲(单进程只会走一条平台路径); 粘贴序列是整段注入,
+        一次收齐缓冲里已有的字符再逐键出。等键用 _win_key_ready()(PeekConsoleInput
+        只认 key-down): msvcrt.kbhit 对非键记录会误报, getwch 空吞非键记录后
+        无限阻塞 → 主循环冻结(实测踩过)。"""
+        import msvcrt
+        if timeout is not None:
+            end = time.monotonic() + timeout
+            while not self._pend and not _win_key_ready():
+                if time.monotonic() >= end:
+                    return None
+                time.sleep(0.02)
+        if not self._pend:
+            self._pend = msvcrt.getwch()
+            while _win_key_ready():  # 粘贴/快速连打: 突发内字符一次收进缓冲
+                self._pend += msvcrt.getwch()
+        p = self._pend
+        c = p[0]
+        if c in ("\x00", "\xe0"):  # 扩展键: 两段 getwch
+            if len(p) < 2:
+                return None  # 凑齐再解
+            self._pend = p[2:]
+            return {"H": "UP", "P": "DOWN", "K": "LEFT", "M": "RIGHT",
+                    "G": "HOME", "O": "END", "S": "DEL"}.get(p[1], "")
+        if c == "\x1b":
+            # bracketed paste 标记(Windows Terminal/ConPTY 认 ?2004h); 不认识的
+            # ESC 序列整体丢弃。ponytail: 标记分片到达超 50ms 宽限就弃, 退化为逐行粘贴
+            deadline = time.monotonic() + 0.05
+            while len(p) < 6 and "\x1b[200~\x1b[201~".find(p) >= 0:  # 还是标记前缀: 等
+                if _win_key_ready():
+                    self._pend += msvcrt.getwch()
+                    p = self._pend
+                elif time.monotonic() >= deadline:
+                    break
+                else:
+                    time.sleep(0.005)
+            if p.startswith("\x1b[200~"):
+                self._pend = p[6:]
+                return "PASTE_ON"
+            if p.startswith("\x1b[201~"):
+                self._pend = p[6:]
+                return "PASTE_OFF"
+            self._pend = ""
+            return ""
+        self._pend = p[1:]
+        if c == "\x03":
+            return "CTRL_C"
+        if c == "\x04":
+            return "CTRL_D"
+        if c in ("\x08", "\x7f"):
+            return "BS"
+        return c
 
 
-class ResumeScreen(ModalScreen):
-    """会话选择弹层: 上下键选, 回车恢复, esc 取消。"""
+# ---- 输入编辑器(多行, claude 最小键位集) ----
+class Editor:
+    """lines[] 多行缓冲 + cy/cx 光标。UP/DOWN/CTRL_C/CTRL_D 由 TUI 层截获。"""
 
-    BINDINGS = [("escape", "cancel", "取消")]
+    def __init__(self):
+        self.lines = [""]
+        self.cy = 0
+        self.cx = 0
+        self.pasting = False
+        self._undo: list[tuple[list[str], int, int]] = []
 
-    def __init__(self, picks: list):
-        self.picks = picks
-        super().__init__()
+    def _snap(self) -> None:
+        self._undo.append((list(self.lines), self.cy, self.cx))
+        if len(self._undo) > 100:
+            self._undo.pop(0)
 
-    def compose(self) -> ComposeResult:
-        yield OptionList(
-            *[
-                Option(f"{i}. {ts}  ({n} 条)  {snippet}", id=str(i))
-                for i, (_f, ts, snippet, n) in enumerate(self.picks, 1)
-            ]
-        )
+    def text(self) -> str:
+        return "\n".join(self.lines)
 
-    def on_option_list_option_selected(self, event) -> None:
-        # Option.id 是 str, 换回下标; None = esc 取消
-        self.dismiss(int(event.option.id) - 1 if event.option.id else None)
+    def clear(self) -> None:
+        self.lines = [""]
+        self.cy = self.cx = 0
+        self._undo.clear()
 
-    def action_cancel(self) -> None:
-        self.dismiss(None)
+    def set_text(self, s: str) -> None:
+        self.clear()
+        self.insert(s)
+
+    def insert(self, s: str) -> None:
+        if not s:
+            return
+        s = s.replace("\r\n", "\n").replace("\r", "\n")  # 粘帖含 \r 的行尾归一
+        self._snap()
+        parts = s.split("\n")
+        for i, part in enumerate(parts):
+            line = self.lines[self.cy]
+            self.lines[self.cy] = line[:self.cx] + part + line[self.cx:]
+            self.cx += len(part)
+            if i < len(parts) - 1:  # 中间换行: 落新行
+                self.lines.insert(self.cy + 1, "")
+                self.cy += 1
+                self.cx = 0
+
+    def handle(self, key: str) -> None:
+        if key == "PASTE_ON":
+            self.pasting = True
+            self._snap()
+            return
+        if key == "PASTE_OFF":
+            self.pasting = False
+            return
+        if self.pasting:
+            if len(key) == 1 or (key and key[0] not in "\x1b"):
+                self.insert(key)
+            return
+        if key == "\r":
+            line = self.lines[self.cy]
+            if line.endswith("\\"):  # claude 同款: 行尾反斜杠 = 软换行
+                self._snap()
+                self.lines[self.cy] = line[:-1]
+                self.lines.insert(self.cy + 1, "")
+                self.cy += 1
+                self.cx = 0
+            else:
+                self.insert("\n")
+            return
+        if key == "BS":
+            self._snap()
+            line = self.lines[self.cy]
+            if self.cx > 0:
+                self.lines[self.cy] = line[:self.cx - 1] + line[self.cx:]
+                self.cx -= 1
+            elif self.cy > 0:
+                self.cx = len(self.lines[self.cy - 1])
+                self.lines[self.cy - 1] += line
+                self.lines.pop(self.cy)
+                self.cy -= 1
+            return
+        if key == "DEL":
+            self._snap()
+            line = self.lines[self.cy]
+            if self.cx < len(line):
+                self.lines[self.cy] = line[:self.cx] + line[self.cx + 1:]
+            elif self.cy < len(self.lines) - 1:
+                self.lines[self.cy] += self.lines.pop(self.cy + 1)
+            return
+        if key == "LEFT":
+            if self.cx > 0:
+                self.cx -= 1
+            elif self.cy > 0:
+                self.cy -= 1
+                self.cx = len(self.lines[self.cy])
+            return
+        if key == "RIGHT":
+            if self.cx < len(self.lines[self.cy]):
+                self.cx += 1
+            elif self.cy < len(self.lines) - 1:
+                self.cy += 1
+                self.cx = 0
+            return
+        if key == "HOME":
+            self.cx = 0
+            return
+        if key == "END":
+            self.cx = len(self.lines[self.cy])
+            return
+        if key == "KILL_END":
+            self._snap()
+            self.lines[self.cy] = self.lines[self.cy][:self.cx]
+            return
+        if key == "KILL_BEG":
+            self._snap()
+            self.lines[self.cy] = self.lines[self.cy][self.cx:]
+            self.cx = 0
+            return
+        if key == "KILL_WORD":
+            self._snap()
+            line = self.lines[self.cy]
+            head = line[:self.cx].rstrip()
+            keep = head.rpartition(" ")[0]
+            tail = line[self.cx:]
+            joiner = " " if keep and tail else ""
+            self.lines[self.cy] = keep + joiner + tail
+            self.cx = len(keep) + len(joiner)
+            return
+        if key == "UNDO":
+            if self._undo:
+                self.lines, self.cy, self.cx = self._undo.pop()
+            return
+        if len(key) == 1 and key.isprintable():
+            self.insert(key)
 
 
-class ChatLog(RichLog):
-    """chatlog 不可聚焦: 点历史/滚轮不抢焦点, 输入框永远持有光标(Claude 同款)。
-    write 后强制滚底: Textual 的 scroll_end(immediate=False) 排队到下一帧,
-    与 virtual_size reflow 竞态, 长内容时常滚不够, 新消息沉在视口下。"""
-
-    can_focus = False
-
-    def write(self, *args, **kwargs):
-        result = super().write(*args, **kwargs)
-        scroll_end = kwargs.get("scroll_end")
-        if scroll_end is None and len(args) >= 5:  # 内部 on_resize 按 5 个位置参数重放
-            scroll_end = args[4]
-        if scroll_end is not False and self.is_mounted:
-            self.scroll_end(animate=False, immediate=True, x_axis=False)  # 竞态兕底
-        return result
-
-
-class ChatApp(App):
-    TITLE = "zany"
-    # ctrl+c 语义学 hermes/Claude: 双击退出 —— busy 首击=打断, 空闲首击只置
-    # pending 提示; EXIT_WINDOW 秒内二击才真退。priority=True 必须保留:
-    # TextArea(ChatPrompt) 内置 ctrl+c=copy/ctrl+d=delete 会吃键, 不加 priority
-    # 永远冒泡不到 App。键位可被 ~/.zany/keybindings.json 改写(main() 里 patch),
-    # 这里是默认值。
-    BINDINGS = [
-        Binding("ctrl+c", "app.interrupt", "打断 / 退出", show=False, priority=True),
-        Binding("ctrl+d", "app.exit", "退出", show=False, priority=True),
-    ]
-
-    CSS = """
-    #chatlog { height: 1fr; border: none; padding: 0 1; }
-    #live    { display: none; padding: 0 1; }
-    #live.on { display: block; }
-    #prompt  { border: round $accent; height: 3; }
-    """
-
-    def __init__(self, resume_id: str | None = None, keybinding_issues: list[str] | None = None):
-        super().__init__()
-        self.workdir = os.getcwd()
-        self.agent = build_agent(self.workdir, with_mcp=False)  # MCP 后台补, 界面秒起
+# ---- claude 式 TUI ----
+class ZanyTui:
+    def __init__(self, workdir: str, resume_id: str | None = None, agent=None,
+                 term: Term | None = None, console: Console | None = None):
+        self.workdir = workdir
+        self.agent = agent or build_agent(workdir, with_mcp=False)  # MCP 后台补, 界面秒起
         self.state = {"messages": [], "marks": [], "goal": None}
-        self._turn_ok = False  # 本轮是否正常结束(打断/异常的轮不自动续 goal)
+        self._turn_ok = False
         self.mcp_stamp = config_stamp()
         self.sess_path = None
-        self.resume_id = resume_id  # -r <id> / -r(最近一个) / None(新会话)
-        self._keybinding_issues = keybinding_issues or []
+        self.resume_id = resume_id
+        self.term = term or Term()
+        self.console = console or Console()
         self.busy = False
-        self._interrupt_pending = False  # 已发打断, 轮结束后重置
-        self._exit_pending = 0.0  # 双击退出的首击时刻(monotonic), 0=无 pending
-        self._exit_timer = None
-        self._queued_text: str | None = None  # busy 时用户输入 → 打断后排下一轮(hermes steer)
-        self.wakeup: "queue.Queue[str]" = queue.Queue()  # cron 唤醒队列
+        self._exit_pending = 0.0
+        self._interrupt_pending = False
+        self._last_cc = 0.0  # conpty ctrl+c 双投递去重(原 tui 同款坑)
+        self._queued_text: str | None = None
+        self.wakeup: "queue.Queue[str]" = queue.Queue()  # cron 唤醒
+        self._bg: "queue.Queue" = queue.Queue()          # 后台线程 → 主循环
+        self.ed = Editor()
+        self.hist: list[str] = []
+        self.hist_idx = -1
+        self.hist_draft = ""
+        self._frame_rows = 0
+        self._park_down = 0  # 光标定位进输入框后, 回到帧底空行需下移的行数(擦帧凭它归位)
+        self._dirty = True
+        self._turn_t0 = None
+        self._verb = 0
+        self._last_tin = 0
+        self._out_chars = 0  # 流式输出字符数(worker 写, spinner 估算 token 用)
+        self._pending_pick: list | None = None  # /resume 编号选择态
+        # 活动段共享状态(worker 写 / 主循环读)
+        self._seg = {"think": "", "text": ""}
+        self._seg_lock = threading.Lock()
+        self._q: "queue.Queue[tuple]" = queue.Queue()
+        self._th: threading.Thread | None = None
 
-    def compose(self) -> ComposeResult:
-        yield ChatLog(id="chatlog", markup=True, wrap=True)
-        yield Static("", id="live")  # 流式输出的在屏消息, 轮结束移入 chatlog
-        yield ChatPrompt(placeholder="输入消息", id="prompt")
-        yield Static("", id="ctx")  # 输入框下常驻一行: 状态提示 + ctx(替代 Footer)
+    # ---- 启动/收摊 ----
+    def start(self) -> None:
+        self.term.setup()
+        from rich.panel import Panel
+        from rich.box import ROUNDED
 
-    def on_mount(self) -> None:
-        self.update_ctx(0)
-        self.query_one("#prompt", ChatPrompt).focus()  # 焦点常驻输入框, 进来直接能打字
-        log = self.query_one("#chatlog", RichLog)
-        log.write(f"[bold]zany[/] (tools: {', '.join(self.agent.tools)})")
-        log.write(f"[dim]工作目录: {self.workdir}[/dim]\n")  # 快捷键提示在输入框下常驻行, 不占横幅
-        if self._keybinding_issues:
-            self.log_write(f"[yellow][keybindings] {len(self._keybinding_issues)} 处问题(已用默认键位补齐):[/yellow]")
-            for issue in self._keybinding_issues:
-                self.log_write(f"[dim]  - {issue}[/dim]")
-        if self.resume_id is not None:  # uv run tui.py -r [id] 启动即恢复
+        tip = Text.assemble(
+            ("◆ Welcome to zany\n", "bold khaki1"),
+            (f"工作目录: {self.workdir} · tools: {', '.join(self.agent.tools)}\n", "khaki1"),
+            ("/new 新对话 · /resume 恢复 · /goal 持续目标\n", "khaki1"),
+            ("ctrl+c 打断/退出 · ctrl+z 撤销输入 · exit 退出", "khaki1"),
+        )
+        self.console.print(Panel(tip, box=ROUNDED, border_style="khaki1", padding=(0, 1)))
+        self.console.print()
+        if self.resume_id is not None:
             if self.resume_id:
                 path = project_dir(self.workdir) / f"{self.resume_id}.json"
                 if not path.exists():
-                    self.log_write(f"[red]会话 {self.resume_id} 不存在(仅列本工作目录的会话)[/red]")
-                    return
+                    self.console.print(f"[red]会话 {self.resume_id} 不存在(仅列本工作目录的会话)[/red]")
+                    path = None
             else:
                 picks = list_sessions(self.workdir)
+                path = picks[0][0] if picks else None
                 if not picks:
-                    self.log_write("[dim]~/.zany/sessions/ 下没有历史会话[/dim]")
-                    return
-                path = picks[0][0]
-            self.do_resume(path)
-        # cron 调度线程只入队, UI 线程消费
-        start_scheduler(
-            lambda name, prompt: self.call_from_thread(self.wakeup.put, prompt)
-        )
-        self.run_worker(self._load_mcp_worker, thread=True)  # MCP probe 慢, 别堵界面
+                    self.console.print("[dim]~/.zany/sessions/ 下没有历史会话[/dim]")
+            if path and path.exists():
+                self.do_resume(path)
+        threading.Thread(target=self._mcp_worker, daemon=True).start()
+        start_scheduler(lambda name, prompt: self.wakeup.put(prompt))
 
-    def _load_mcp_worker(self) -> None:
+    def stop(self) -> None:
+        self._erase_frame()  # 退出不留活动区残帧
+        self.term.teardown()
+        if self.state["messages"] and self.sess_path is not None:
+            print(f"(继续对话: uv run tui.py -r {self.sess_path.stem})", file=sys.stderr)
+
+    def _mcp_worker(self) -> None:
         from core.mcp import failed_servers, load_mcp_tools
-
-        def apply(tools) -> None:
-            added = self.agent.add_tools(tools)
-            if added:
-                # apply 经 call_from_thread 已在 UI 线程, 这里直接写 log
-                self.log_write(f"[dim](MCP 工具就绪: {', '.join(added)})[/dim]")
-
-        # 启动 probe 失败(服务器晚起)每 60s 全量重试补挂, 共 5 分钟窗口;
-        # 运行中断线不用管(_call 每次即开即用重连), 全失败则等 mtime 变更触发重建
         for _ in range(6):
             try:
                 tools = load_mcp_tools()
             except Exception:
                 tools = []
             if tools:
-                self.call_from_thread(apply, tools)
+                added = self.agent.add_tools(tools)
+                if added:
+                    self._bg.put(("line", f"[dim](MCP 工具就绪: {', '.join(added)})[/dim]"))
             if not failed_servers():
                 return
             time.sleep(60)
 
-    # ---- UI 工具 ----
+    # ---- 烙定区打印(仅主循环调用; 打印前擦掉活动区) ----
+    def _erase_frame(self) -> None:
+        if self.term.vt and self._frame_rows:
+            # 光标可能停在上帧定位的输入行内: 先下移回帧底(用记录值, 不依赖当前 ed 状态),
+            # 再上移帧高擦除。直接 ESC[{R}A 会从输入行起算 → 每次重绘净上浮一行(啃掉烙定区)。
+            self.term.write(f"{ESC}[{self._park_down}B\r{ESC}[{self._frame_rows}A{ESC}[J")
+        self._frame_rows = 0
+        self._park_down = 0
 
     def log_write(self, text: str) -> None:
-        self.query_one("#chatlog", RichLog).write(text)
+        self._erase_frame()
+        self.console.print(text)
 
     def log_render(self, renderable) -> None:
-        """渲染定稿: Rich renderable(Group+Text 组合)直接入 chatlog。"""
-        log = self.query_one("#chatlog", RichLog)
-        log.write(Text())  # 块间空行
-        log.write(renderable)
+        self._erase_frame()
+        self.console.print(Text())  # 块间空行
+        self.console.print(renderable)
 
     def chat_line(self, who: str, text: str) -> None:
-        """聊天行: 用户消息暗灰底色条(近透明底)+灰白字; AI 正文白字无底。"""
+        self._erase_frame()
         if who == "user":
-            log = self.query_one("#chatlog", RichLog)
-            log.write(Text())  # 块间空行
-            t = Text()
-            t.append(text, style="#d4d4d4 on grey27")  # 无前缀, 暗灰底条区分用户消息
-            log.write(t)
+            self.console.print(Text())
+            self.console.print(Text(text, style="#d4d4d4 on grey27"))
         else:
-            self.query_one("#chatlog", RichLog).write(
-                Text(text, justify="left", style="#d4d4d4")
-            )
+            self.console.print(Text(text, justify="left", style="#d4d4d4"))
 
-    def set_busy(self, busy: bool) -> None:
-        self.busy = busy
-        if not busy:
-            self._interrupt_pending = False  # 一轮安全落地, 重置两段式退出
-        # 输入框不disable(Claude 同款: 任何时候都能打字; busy 时回车=打断+排队)
-        self.query_one("#prompt", ChatPrompt).focus()
-        self.update_ctx(getattr(self, "_last_tin", 0))  # 常驻提示行随忙/闲切换
+    # ---- 活动区整帧重绘 ----
+    def _wrap_tail(self, s: str, width: int, max_rows: int) -> list[str]:
+        """尾部 max_rows 视觉行(超宽折行, CJK 按双宽); 源太长只取尾部防 O(n²)。"""
+        s = "".join(c for c in s if ord(c) >= 32 or c == "\t")  # 模型输出别往终端塞控制序列
+        s = s[-(max_rows * width * 2 + 100):]
+        rows: list[str] = []
+        for line in s.splitlines() or [""]:
+            line = line.expandtabs(4)
+            while cells(line) > width and width > 0:
+                cut = width
+                while cut > 1 and cells(line[:cut]) > width:
+                    cut -= 1
+                rows.append(line[:cut])
+                line = line[cut:]
+            rows.append(line)
+        return rows[-max_rows:]
 
-    # ---- 提交 / 一轮对话 ----
+    def _render_frame(self) -> None:
+        w = shutil.get_terminal_size((100, 24)).columns
+        rows: list[str] = []
+        with self._seg_lock:
+            think, text = self._seg["think"], self._seg["text"]
+        if self.busy:
+            src = text if text.strip() else (think if SHOW_THINKING else "")
+            if src.strip():
+                style = C_TEXT if text.strip() else C_DIM
+                rows += [f"{style}{r}{C_RESET}" for r in self._wrap_tail(src, w - 2, 6)]
+        if self.busy and self._turn_t0 is not None:
+            fr = _SPINNER_FRAMES[int(time.monotonic() * 8) % len(_SPINNER_FRAMES)]
+            verb = _SPINNER_VERBS[self._verb]
+            secs = int(time.monotonic() - self._turn_t0)
+            toks = fmt_tokens(max(1, self._out_chars // 3))
+            rows.append(f"{C_SPIN}{fr}{C_RESET} {C_DIM}{verb}… (ctrl+c 打断 · ~{toks} tok · {secs}s){C_RESET}")
+        # 输入区: 上下两条线无侧边(claude 同款), 逻辑行按宽折成视觉行
+        chunks_per_line = [_split_width(l, w - 2) for l in self.ed.lines]
+        rows.append(f"{C_BORDER}{'─' * w}{C_RESET}")
+        for li, chunks in enumerate(chunks_per_line):
+            for ci, chunk in enumerate(chunks):
+                mark = f"{C_TEXT}>{C_RESET} " if (li == 0 and ci == 0) else "  "
+                rows.append(f"{mark}{chunk}{C_RESET}")
+        rows.append(f"{C_BORDER}{'─' * w}{C_RESET}")
+        # 工具条
+        if self._exit_pending and time.monotonic() - self._exit_pending <= EXIT_WINDOW:
+            hint = f"{C_WARN}» 再按一次 ctrl+c 退出{C_RESET}"
+        elif self.busy:
+            hint = f"{C_WARN}» 运行中 · ctrl+c 打断{C_RESET}"
+        else:
+            hint = f"{C_DIM}» /new /resume /goal · exit 退出{C_RESET}"
+        ctx_max = int(os.environ.get("ANTHROPIC_CONTEXT_TOKENS", "200000"))
+        pct = min(100, round(self._last_tin / ctx_max * 100)) if self._last_tin else 0
+        cc = "\x1b[31m" if pct >= 95 else "\x1b[33m" if pct >= 50 else "\x1b[32m"
+        filled = round(pct / 100 * 10)
+        tin_bar = f"{cc}{'█' * filled}{'░' * (10 - filled)}{C_RESET} {C_DIM}{fmt_tokens(self._last_tin)}/{fmt_tokens(ctx_max)} · {pct}%{C_RESET}"
+        rows.append(f" {hint}{C_DIM} · {tin_bar}{C_RESET}")
+        # 重绘
+        self._erase_frame()
+        self.term.write("\n".join(rows) + "\n")
+        self._frame_rows = len(rows)
+        if self.term.vt:
+            # 光标逻辑位(cy,cx) → 视觉行: 贪心折行对前缀一致, 用前缀折行数定位
+            pre = _split_width(self.ed.lines[self.ed.cy][:self.ed.cx], w - 2)
+            row_in = len(pre) - 1
+            rows_below = sum(len(c) for c in chunks_per_line[self.ed.cy + 1:]) \
+                + len(chunks_per_line[self.ed.cy]) - 1 - row_in + 2  # 后续输入行 + 底边线 + 工具条
+            up = rows_below + 1  # 帧尾写完带 \n(光标在工具条下一空行)
+            col = 2 + cells(pre[-1])  # "> " 前缀 2 格
+            self.term.write(f"{ESC}[{up}A{ESC}[{col + 1}G")
+            self._park_down = up  # 下次擦帧先原路下移回来, 防重绘整体上浮
 
-    def on_chat_prompt_submitted(self, event: ChatPrompt.Submitted) -> None:
-        text = event.text
-        if not text:
+    # ---- 键处理 ----
+    def _on_key(self, key: str) -> None:
+        if key == "CTRL_C":
+            now = time.monotonic()
+            if now - self._last_cc < 0.1:
+                return  # conpty 同击双投递去重
+            self._last_cc = now
+            if self.busy:
+                if self._exit_pending and now - self._exit_pending <= EXIT_WINDOW:
+                    raise SystemExit(0)
+                self._exit_pending = now
+                if not self._interrupt_pending:
+                    self._interrupt_pending = True
+                    self.agent.interrupt("用户按了 ctrl+c")
+                    self._q.put(("line", "[dim]⚡ 打断请求已发出(再按一次 ctrl+c 退出)…[/dim]"))
+                return
+            if self.ed.text() or self._pending_pick is not None:
+                self.ed.clear()
+                self._pending_pick = None
+                self._dirty = True
+                return
+            if self._exit_pending and now - self._exit_pending <= EXIT_WINDOW:
+                raise SystemExit(0)
+            self._exit_pending = now
+            self._dirty = True
             return
-        if text.lower() in ("exit", "quit"):
-            self.exit()
+        self._exit_pending = 0.0
+        if key == "CTRL_D":
+            if not self.busy and not self.ed.text():
+                raise SystemExit(0)
             return
+        if key in ("UP", "DOWN"):
+            self._nav(key)
+            self._dirty = True
+            return
+        if key in ("\r", "\n"):  # \n 兼底: 没关掉 ICRNL 的环境 Enter 会变 \n
+            if self.ed.pasting:
+                self.ed.handle(key)  # 粘贴内的换行, 不提交
+                self._dirty = True
+                return
+            if self.ed.lines[self.ed.cy].endswith("\\"):
+                self.ed.handle("\r")  # 行尾反斜杠 = 软换行(claude 同款), 不提交
+                self._dirty = True
+                return
+            t = self.ed.text().strip()
+            self.ed.clear()
+            self.hist_idx = -1
+            if self._pending_pick is not None:
+                picks, self._pending_pick = self._pending_pick, None
+                if t.isdigit() and 1 <= int(t) <= len(picks):
+                    self.do_resume(picks[int(t) - 1][0])
+                self._dirty = True
+                return
+            if not t:
+                self._dirty = True
+                return
+            if t.lower() in ("exit", "quit"):
+                raise SystemExit(0)
+            if self.busy:
+                # claude/hermes 同款: 忙时回车 = 打断当前轮 + 文本排下一轮(steer)
+                if not self._interrupt_pending:
+                    self._interrupt_pending = True
+                    self.agent.interrupt("用户按了 ctrl+c")
+                    self._q.put(("line", "[dim]⚡ 已请求打断, 这条排下一轮[/dim]"))
+                self._queued_text = (self._queued_text + "\n" + t) if self._queued_text else t
+                self._dirty = True
+                return
+            self.hist.insert(0, t)
+            self._dirty = True
+            self._submit(t)
+            return
+        self.ed.handle(key)
+        self._dirty = True
+
+    def _nav(self, key: str) -> None:
+        ed = self.ed
+        # 多行缓冲先走行间移动, 顶/底边缘才是历史
+        if key == "UP" and ed.cy > 0:
+            ed.cy -= 1
+            ed.cx = min(ed.cx, len(ed.lines[ed.cy]))
+            return
+        if key == "DOWN" and ed.cy < len(ed.lines) - 1:
+            ed.cy += 1
+            ed.cx = min(ed.cx, len(ed.lines[ed.cy]))
+            return
+        if not self.hist:
+            return
+        if key == "UP":
+            if self.hist_idx == -1:
+                self.hist_draft = ed.text()
+                self.hist_idx = 0
+            elif self.hist_idx < len(self.hist) - 1:
+                self.hist_idx += 1
+            else:
+                return
+        else:
+            if self.hist_idx == -1:
+                return
+            self.hist_idx -= 1
+            if self.hist_idx < 0:
+                ed.set_text(self.hist_draft)
+                self.hist_idx = -1
+                return
+        ed.set_text(self.hist[self.hist_idx])
+
+    # ---- 主循环 ----
+    def run(self) -> None:
+        self.start()
+        if not self.term.vt:
+            self._run_plain()  # 管道 stdin / 老 conhost 无 VT: 烙定区照常 + cooked input()
+            return
+        self._render_frame()
+        try:
+            while True:
+                key = self.term.read_key(0.1 if self.busy else 0.2)
+                self._drain_bg()
+                self._drain_q()  # 轮内的工具行/分段定稿要即时上屏, 不能憋到轮末
+                if key:
+                    self._on_key(key)
+                if self.busy and self._th is not None and not self._th.is_alive():
+                    self._finish_turn()
+                if self._dirty or self.busy:
+                    self._render_frame()
+                    self._dirty = False
+        except (SystemExit, KeyboardInterrupt):
+            pass
+        finally:
+            self.stop()
+
+    def _run_plain(self) -> None:
+        """无 VT 退行式: 不画框、不玩光标, input() 接行; 忙时排水队列到轮末。"""
+        import signal as _s
+
+        def _int(sig, frm):
+            self.agent.interrupt("用户打断")
+            _s.signal(_s.SIGINT, _s.SIG_DFL)  # 再按直接退出
+
+        try:
+            while True:
+                try:
+                    text = input(f"{C_TEXT}> {C_RESET}").strip()
+                except EOFError:
+                    break
+                except KeyboardInterrupt:
+                    print()
+                    continue
+                if not text:
+                    continue
+                try:
+                    if text.lower() in ("exit", "quit"):
+                        break
+                    self._submit(text)
+                    if self._pending_pick is not None:
+                        try:
+                            num = input("编号> ").strip()
+                        except (EOFError, KeyboardInterrupt):
+                            num = ""
+                        picks, self._pending_pick = self._pending_pick, None
+                        if num.isdigit() and 1 <= int(num) <= len(picks):
+                            self.do_resume(picks[int(num) - 1][0])
+                        continue
+                    if self.busy:
+                        _s.signal(_s.SIGINT, _int)
+                        while True:
+                            while self.busy and self._th is not None and self._th.is_alive():
+                                self._drain_q()
+                                self._drain_bg()
+                                time.sleep(0.1)
+                            self._drain_q()
+                            self._finish_turn()
+                            if not self.busy:
+                                break  # turn_finished 可能链式 goal/cron 续跑, 追到停为止
+                        _s.signal(_s.SIGINT, _s.SIG_DFL)
+                except SystemExit:
+                    break
+        finally:
+            self.stop()
+
+    def _drain_bg(self) -> None:
+        while True:
+            try:
+                kind, payload = self._bg.get_nowait()
+            except queue.Empty:
+                return
+            if kind == "line":
+                self.log_write(payload)
+
+    def _drain_q(self) -> None:
+        while True:
+            try:
+                item = self._q.get_nowait()
+            except queue.Empty:
+                return
+            kind = item[0]
+            if kind == "line":
+                self.log_write(item[1])
+            elif kind == "render":
+                self.log_render(item[1])
+            elif kind == "usage":
+                self._last_tin = item[1]
+
+    # ---- 一轮对话 ----
+    def _submit(self, text: str) -> None:
         if text.lower() in ("/resume", "/r"):
-            self.resume_picker()
+            picks = self.resume_picker()
+            if picks:
+                self._pending_pick = picks
             return
         if text.lower() in ("/new", "/n"):
             if self.busy:
@@ -484,263 +981,121 @@ class ChatApp(App):
         if text.lower().startswith("/goal"):
             self.handle_goal(text[5:].strip())
             return
-        if self.busy:
-            # hermes busy_input_mode="interrupt": 忙时输入=打断当前轮, 文本排下一轮
-            if not self._interrupt_pending:
-                self.agent.interrupt()
-                self._interrupt_pending = True
-            self._queued_text = (self._queued_text + "\n" + text) if self._queued_text else text
-            self.log_write(f"[dim](已请求打断, 这条排下一轮: {text[:60]}…)[/dim]")
-            return
         self.chat_line("user", text)
         self.run_turn(text)
 
-    def handle_goal(self, arg: str) -> None:
-        """goal 设置并立即开跑; /goal 查看; /goal resume 恢复; /goal off 清除。"""
-        g = self.state["goal"]
-        if not arg:
-            if g:
-                self.log_write(f"[cyan]🎯 goal[{g['status']}] 第 {g['turns_used']}/{g['max_turns']} 轮: {g['objective']}[/cyan]")
-            else:
-                self.log_write("[dim]用法: /goal <目标> · /goal resume · /goal off[/dim]")
-            return
-        if arg == "off":
-            if g:
-                detach_goal(self.agent)
-                self.state["goal"] = None
-                self.log_write("[dim]🎯 goal 已清除(状态史见会话)[/dim]")
-            else:
-                self.log_write("[dim]当前没有 goal[/dim]")
-            return
-        if arg == "resume":
-            if g and g["status"] in ("paused", "blocked"):
-                g["status"] = "active"
-                g["turns_used"] = 0  # 重新给满预算
-                self.log_write(f"[cyan]🎯 goal 已恢复, 预算重置为 {g['max_turns']} 轮: {g['objective']}[/cyan]")
-            else:
-                self.log_write("[dim]没有可恢复的 paused/blocked goal[/dim]")
-            return
-        if self.busy:
-            self.log_write("[dim]当前轮还在跑, 等它结束再设 goal[/dim]")
-            return
-        if g:
-            detach_goal(self.agent)  # 覆盖旧 goal
-        self.state["goal"] = {
-            "objective": arg,
-            "status": "active",
-            "turns_used": 1,
-            "max_turns": GOAL_MAX_TURNS,
-        }
-        attach_goal(self.agent, self.state["goal"])
-        self.log_write(f"[cyan]🎯 goal 已设定(预算 {GOAL_MAX_TURNS} 轮, /goal off 取消): {arg}[/cyan]")
-        self.chat_line("user", f"/goal {arg}")
-        self.run_turn(continuation_prompt(self.state["goal"]))
-
-    def action_interrupt(self) -> None:
-        """ctrl+c 状态机(Claude 同款 pending+计时): 窗口内二击退出;
-        否则 busy 首击打断(必发一条即时提示), 空闲首击只置 pending。"""
-        now = time.monotonic()
-        # conpty 合成终端(PyCharm)同一次 ctrl+c 双投递: 按键事件 + CTRL_C_EVENT 各到一次,
-        # 两条路都汇到本方法 → 一击被算两击(重复提示/吃掉退出窗口)。100ms 内去重。
-        if now - getattr(self, "_last_interrupt_at", 0.0) < 0.1:
-            return
-        self._last_interrupt_at = now
-        if self._exit_pending and now - self._exit_pending <= EXIT_WINDOW:
-            self.exit()
-            return
-        self._exit_pending = now
-        if self._exit_timer is not None:
-            self._exit_timer.stop()
-        self._exit_timer = self.set_timer(EXIT_WINDOW, self._clear_exit_pending)
-        if self.busy and not self._interrupt_pending:
-            self._interrupt_pending = True
-            self.agent.interrupt("用户按了 ctrl+c")
-            self.log_write("[dim]⚡ 打断请求已发出(在途调用立即废弃, execute 连进程一起杀)…再按一次 ctrl+c 退出, 或按 ctrl+d[/dim]")
-        else:
-            self.log_write("[dim](press ctrl+c again to exit, or ctrl+d)[/dim]")
-        self.update_ctx(getattr(self, "_last_tin", 0))
-
-    def _clear_exit_pending(self) -> None:
-        self._exit_pending = 0.0
-        self._exit_timer = None
-        self.update_ctx(getattr(self, "_last_tin", 0))  # 提示行恢复忙/闲常态
-
-    def action_exit(self) -> None:
-        """ctrl+d: 直接退出(Claude 的 EOF 语义), 不走双击确认。"""
-        self.exit()
-
-    @work(thread=True, exclusive=True)
     def run_turn(self, text: str) -> None:
-        """一轮对话, 后台线程执行; UI 更新一律 call_from_thread。"""
-        self._turn_ok = False  # 打断/异常的轮不自动续 goal
-        self.call_from_thread(self.set_busy, True)
-        # mcp_servers.json 变了 → 重建 agent（与 chat.py 同款）
+        self._turn_ok = False
+        self.busy = True
+        self._turn_t0 = time.monotonic()
+        self._verb = hash(text) % len(_SPINNER_VERBS)
+        self._out_chars = 0
+        with self._seg_lock:
+            self._seg = {"think": "", "text": ""}
+        # mcp_servers.json 变了 → 重建 agent(与原 tui 同款)
         if config_stamp() != self.mcp_stamp:
             self.mcp_stamp = config_stamp()
             try:
                 self.agent = build_agent(self.workdir)
                 if self.state["goal"]:
-                    attach_goal(self.agent, self.state["goal"])  # 重建丢了动态工具, 重挂
-                self.call_from_thread(
-                    self.log_write, "[dim](检测到 mcp_servers.json 变更,已重载 MCP 工具)[/dim]"
-                )
+                    attach_goal(self.agent, self.state["goal"])
+                self._q.put(("line", "[dim](检测到 mcp_servers.json 变更, 已重载 MCP 工具)[/dim]"))
             except Exception as e:
-                self.call_from_thread(
-                    self.log_write, f"[dim](MCP 重载失败,沿用旧配置: {e})[/dim]"
-                )
+                self._q.put(("line", f"[dim](MCP 重载失败, 沿用旧配置: {e})[/dim]"))
+        msgs = self.state["messages"] + [{"role": "user", "content": user_content(text)}]
+        self._th = threading.Thread(target=self._turn_worker, args=(msgs,), daemon=True)
+        self._th.start()
+
+    def _turn_worker(self, msgs: list[dict]) -> None:
+        """worker 线程: 只改 _seg 与 _q, 不碰终端(单写者原则)。"""
+        q = self._q
+        think_buf = text_buf = ""
+        tool_t0 = {}
+        think_t0 = think_last = None
+        n_tools = 0
+
+        def flush_seg() -> None:
+            nonlocal think_buf, text_buf
+            if (think_buf.strip() and SHOW_THINKING) or text_buf.strip():
+                q.put(("render", _turn_renderable(think_buf, text_buf, fold=True)))
+                think_buf, text_buf = "", ""
+
         try:
-            msgs = self.state["messages"] + [{"role": "user", "content": user_content(text)}]
-            self.call_from_thread(self.live_start)
-            # 分段状态机(hermes turn boundary flush): thinking→正文为一段,
-            # 工具回填时定稿入 chatlog 并开新段, 保证多轮工具交错不混排
-            think_buf = ""
-            text_buf = ""
-            turn_tokens = (0, 0)
-            tool_t0 = {}  # tool_use_id -> 起始时刻, 算工具耗时
-            think_t0 = think_last = None  # thinking 首末时刻, 算思考耗时
-            n_tools = 0
-            # 核心事件流: ("thinking",d) / ("text",d) / ("tool_start",id,name)
-            #            / ("tool_result",id,name,input_json,output)
             for ev in self.agent.stream(msgs):
                 kind = ev[0]
                 if kind == "thinking":
-                    if think_t0 is None:
-                        think_t0 = time.monotonic()
-                    think_last = time.monotonic()
+                    now = time.monotonic()
+                    think_t0 = think_t0 or now
+                    think_last = now
                     think_buf += ev[1]
                 elif kind == "text":
                     text_buf += ev[1]
+                    self._out_chars = len(text_buf)
                 elif kind == "tool_start":
                     tool_t0[ev[1]] = time.monotonic()
                 elif kind == "tool_result":
+                    flush_seg()
                     n_tools += 1
-                    # 段边界: 先把 thinking/正文定稿进 chatlog(正文到达时
-                    # thinking 已折叠), 再打工具行 —— 对应 hermes 的
-                    # _flush_stream + 工具 feed 行
-                    # 只在真有可见内容(SHOW_THINKING=0 时 thinking 不算)才定稿,
-                    # 否则 log_render 会画"块间空行"+空块 → 工具行之间冒空行
-                    if (think_buf.strip() and SHOW_THINKING) or text_buf.strip():
-                        seg = _turn_renderable(think_buf, text_buf, fold=True)
-                        self.call_from_thread(self.log_render, seg)
-                        think_buf, text_buf = "", ""
                     _, _id, name, input_json, output = ev
                     dur = time.monotonic() - tool_t0.pop(_id, time.monotonic())
                     try:
                         args = json.loads(input_json)
                     except json.JSONDecodeError:
                         args = {}
-                    self.call_from_thread(self.log_write, tool_line(name, args, dur, output))
+                    q.put(("line", tool_line(name, args, dur, output)))
                 elif kind == "usage":
-                    turn_tokens = (ev[1], ev[2])
-                    self.call_from_thread(self.update_ctx, ev[1])
+                    q.put(("usage", ev[1]))
                 elif kind == "compact":
-                    self.call_from_thread(
-                        self.log_write,
-                        f"[dim]🗜 上下文压缩: {fmt_tokens(ev[1])} → ~{fmt_tokens(ev[2])} tokens[/dim]",
-                    )
+                    q.put(("line", f"[dim]🗜 上下文压缩: {fmt_tokens(ev[1])} → ~{fmt_tokens(ev[2])} tokens[/dim]"))
                 elif kind == "interrupted":
-                    self.call_from_thread(self.log_write, f"[yellow]⚡ 已打断: {ev[1]}[/yellow]")
-                    # _turn_ok 保持 False: 用户打断 = 要回控制权, 这轮之后不自动续 goal
+                    q.put(("line", f"[yellow]⚡ 已打断: {ev[1]}[/yellow]"))
                 elif kind == "compact_error":
-                    self.call_from_thread(
-                        self.log_write, f"[dim](自动压缩已停用: {ev[1]})[/dim]"
-                    )
+                    q.put(("line", f"[dim](自动压缩已停用: {ev[1]})[/dim]"))
                 elif kind == "turn_limit":
-                    self.call_from_thread(
-                        self.log_write, f"[yellow]■ 已达最大轮数 {ev[1]}, 本轮中止(继续发消息可接着干)[/yellow]"
-                    )
-                self.call_from_thread(self.live_update, think_buf, text_buf)
+                    q.put(("line", f"[yellow]■ 已达最大轮数 {ev[1]}, 本轮中止(继续发消息可接着干)[/yellow]"))
+                with self._seg_lock:
+                    self._seg = {"think": think_buf, "text": text_buf}
             self.state["messages"] = msgs
             self._turn_ok = True
         except Exception as e:
-            # 现场定稿(已到达的 thinking/正文不丢), 然后红字报错 —— 错误即文本
-            self.call_from_thread(self.log_render, _turn_renderable(think_buf, text_buf, fold=True))
-            self.call_from_thread(self.log_write, f"[red]对话出错: {e}[/red]")
-            self.call_from_thread(self.live_hide)
-            self.call_from_thread(self.turn_finished)
+            flush_seg()
+            q.put(("line", f"[red]对话出错: {e}[/red]"))
             return
-        # 每轮落盘: 首轮创建会话文件, 之后覆盖写（fork 恢复后开新文件）
-        # 回合侧账: 消息条数当锚, 恢复回放按锚对齐(防止 compact 后错位)
-        self.state["marks"].append(
-            {
-                "at": len(self.state["messages"]),
-                "thought": (
-                    max(1, round(think_last - think_t0)) if think_t0 is not None else None
-                ),
-                "tools": n_tools,
-            }
-        )
+        # 落盘 + marks(与原 tui 同口径)
+        self.state["marks"].append({
+            "at": len(self.state["messages"]),
+            "thought": (max(1, round(think_last - think_t0)) if think_t0 is not None else None),
+            "tools": n_tools,
+        })
         if self.sess_path is None:
             self.sess_path = new_session_file(self.workdir)
         try:
-            save_session(
-                self.sess_path,
-                self.state["messages"],
-                self.agent.usage,
-                self.state["marks"],
-                self.workdir,
-                goal=self.state["goal"],
-            )
+            save_session(self.sess_path, self.state["messages"], self.agent.usage,
+                         self.state["marks"], self.workdir, goal=self.state["goal"])
         except Exception as e:
-            self.call_from_thread(self.log_write, f"[dim](会话保存失败: {e})[/dim]")
-        # 末段定稿进 chatlog(与 live 区同一样式); 空段不画(同上, 防多余空行)
-        if (think_buf.strip() and SHOW_THINKING) or text_buf.strip():
-            self.call_from_thread(
-                self.log_render, _turn_renderable(think_buf, text_buf, fold=True)
-            )
-        # 回合摘要行(Claude 同款): 思考耗时 + 工具调用数
+            q.put(("line", f"[dim](会话保存失败: {e})[/dim]"))
+        flush_seg()
         marks = []
         if think_t0 is not None:
-            # 有 thinking 就显示(哪怕单 delta 不到 1s, 取 1s 起步); 没思考才跳过
             marks.append(f"Thought for {max(1, round(think_last - think_t0))}s")
         if n_tools:
             marks.append(f"ran {n_tools} tool call{'s' if n_tools > 1 else ''}")
         if marks:
-            self.call_from_thread(
-                self.log_write, f"\n[dim]{', '.join(marks)}[/dim]"
-            )  # 前置 \n 空一行(Claude 的 * Baked for ... 前也有空行)
-        self.call_from_thread(self.live_hide)
-        self.call_from_thread(self.turn_finished)
+            q.put(("line", f"[dim]{', '.join(marks)}[/dim]"))
 
-    # ---- 流式显示 ----
-
-    def update_ctx(self, tin: int) -> None:
-        """输入框下方常驻一行(Claude Code 的 auto-mode 行同款):
-        状态提示 + ctx 占用; set_busy 也走这里, 提示随忙/闲切换。"""
-        self._last_tin = tin
-        if self._exit_pending and time.monotonic() - self._exit_pending <= EXIT_WINDOW:
-            state = "[yellow]» 再按一次 ctrl+c 退出, 或按 ctrl+d[/yellow]"
-        elif self.busy:
-            state = "[yellow]» 运行中 · ctrl+c 打断[/yellow]"
-        else:
-            state = "[dim]» /new 新对话 · /resume 恢复 · /goal 持续目标 · ctrl+z 回退输入 · exit 退出[/dim]"
-        self.query_one("#ctx", Static).update(f"{state} [dim]· {ctx_bar(tin)}[/dim]")
-
-    # 贴图走文件路径: [图片: 路径] 占位符(core/messages.user_content 转成 image 块)。
-    # 不做剪贴板粘贴 —— SSH 终端(VS Code/Windows Terminal)对图片粘贴什么都不发, 读不到。
-
-
-    def live_start(self) -> None:
-        self.query_one("#live", Static).add_class("on")
-
-    def live_update(self, think: str, text: str) -> None:
-        # live 区 thinking 只看尾部几行(hermes 正文一到就关 reasoning 盒的等效做法),
-        # 全量仍进 messages/session 文件; 正文到达后走 _turn_renderable 的折叠
-        lines = think.strip().splitlines()
-        if lines and not text.strip() and len(lines) > LIVE_REASONING_LINES:
-            think = f"… 前 {len(lines) - LIVE_REASONING_LINES} 行\n" + "\n".join(lines[-LIVE_REASONING_LINES:])
-        self.query_one("#live", Static).update(
-            _turn_renderable(think, text, fold=False, md=False))
-
-    def live_hide(self) -> None:
-        """隐藏流式区(组件保留, 只藏不删)。定稿已分段写进 chatlog。"""
-        live = self.query_one("#live", Static)
-        live.remove_class("on")
-        live.update("")
+    def _finish_turn(self) -> None:
+        self._drain_q()
+        self.busy = False
+        self._turn_t0 = None
+        self._interrupt_pending = False
+        with self._seg_lock:
+            self._seg = {"think": "", "text": ""}
+        self._last_tin = self.agent.usage.get("last_in") or self._last_tin
+        self._dirty = True
+        self.turn_finished()
 
     def turn_finished(self) -> None:
-        """UI 线程收尾: 解锁输入; 忙时插进来的话(打断+steer)接着跑; 再跑 cron 唤醒; 最后 goal 续跑。"""
-        self.set_busy(False)
+        """忙时插话(steer) > cron 唤醒 > goal 续跑。"""
         if self._queued_text:
             queued, self._queued_text = self._queued_text, None
             self.chat_line("user", queued)
@@ -751,72 +1106,52 @@ class ChatApp(App):
             self.log_write("[bold cyan]⏰ [定时任务触发][/bold cyan]")
             self.run_turn(prompt)
             return
-        # goal 续跑(优先级最低: 排队用户文本 > cron > goal): 每轮末尾现场注入投影
         g = self.state["goal"]
         if g and g["status"] == "active" and self._turn_ok:
             if g["turns_used"] >= g["max_turns"]:
                 g["status"] = "paused"
-                self.log_write(
-                    f"[yellow]🎯 goal 预算用完({g['max_turns']} 轮), 已暂停 — /goal resume 继续, /goal off 放弃[/yellow]"
-                )
+                self.log_write(f"[yellow]🎯 goal 预算用完({g['max_turns']} 轮), 已暂停 — /goal resume 继续, /goal off 放弃[/yellow]")
             else:
                 g["turns_used"] += 1
                 self.log_write(f"[bold cyan]🎯 [goal 续跑 {g['turns_used']}/{g['max_turns']}][/bold cyan]")
                 self.run_turn(continuation_prompt(g))
-        # goal 非 active(complete/blocked/paused): update_goal 工具行已展示过, 不再刷屏
 
-    # ---- /new / /resume ----
-
+    # ---- /new / /resume / /goal ----
     def new_chat(self) -> None:
-        """新开一个对话: 清空消息/账本/续写目标, 清屏重绘欢迎横幅。
-
-        旧会话已每轮落盘, 这里只是 UI 和内存态归零 —— /resume 随时能找回。"""
         self.state["messages"] = []
         self.state["marks"] = []
         if self.state["goal"]:
             detach_goal(self.agent)
         self.state["goal"] = None
-        self.sess_path = None  # 解除续写目标, 下轮落盘时 new_session_file 另起新文件
-        self.agent.usage = {"input": 0, "output": 0, "calls": 0}  # 账本清零(与 loop 初始同款)
-        self.agent._last_prompt_tokens = None  # 压缩判定同步清零, 防旧 last_in 误触发新会话压缩
+        self.sess_path = None
+        self.agent.usage = {"input": 0, "output": 0, "calls": 0}
+        self.agent._last_prompt_tokens = None
         self._last_tin = 0
-        self.update_ctx(0)
-        log = self.query_one("#chatlog", RichLog)
-        log.clear()
-        log.write(f"[bold]zany[/] (tools: {', '.join(self.agent.tools)})")
-        log.write(f"[dim]工作目录: {self.workdir}[/dim]\n")
+        self._erase_frame()
+        self.console.print("[dim](新对话, 下轮落盘另起新会话)[/dim]")
+        self._dirty = True
 
     def do_resume(self, path) -> None:
-        """恢复指定会话文件: 接回消息/账本/续写目标, 并回显历史。"""
         data = load_session_data(path)
         self.state["messages"] = data["messages"]
         self.state["marks"] = data.get("marks", []) or []
         g = data.get("goal")
         self.state["goal"] = g
         if g:
-            attach_goal(self.agent, g)  # update_goal 工具跟会话走
-            self.log_write(
-                f"[cyan]🎯 goal 恢复[{g['status']}] 第 {g['turns_used']}/{g['max_turns']} 轮: {g['objective']}[/cyan]"
-            )
-        self.sess_path = path  # 原地续写原会话文件
+            attach_goal(self.agent, g)
+            self.log_write(f"[cyan]🎯 goal 恢复[{g['status']}] 第 {g['turns_used']}/{g['max_turns']} 轮: {g['objective']}[/cyan]")
+        self.sess_path = path
         if data.get("usage"):
             self.agent.restore(data["usage"])
-        # 进度条立即恢复(原要对话一轮才显示); 旧格式会话无 last_in 时用 est 兼底
-        # (口径对齐真实 prompt tokens: system prompt + messages)
         tin = self.agent.usage.get("last_in") or est_tokens(
-            [{"role": "system", "content": self.agent._system()}]
-            + self.state["messages"])
-        self.update_ctx(tin)
+            [{"role": "system", "content": self.agent._system()}] + self.state["messages"])
+        self._last_tin = tin
         self.log_write(f"[dim]已恢复 {path.stem} ({len(self.state['messages'])} 条消息):[/dim]")
-        # 回放历史: 线性按时间线逐条渲染 —— user 消息画底色条, assistant 每次响应一段
-        # (● 段头同 live), tool_result 在原位渲染工具行(打断轮的工作恢复可见),
-        # 轮末按 marks 锚补摘要行
         marks_by_at = {m["at"]: m for m in self.state["marks"]}
         msgs = self.state["messages"]
-        tool_uses_by_id: dict = {}  # tool_use_id -> (name, input), 工具行回放用
+        tool_uses_by_id: dict = {}
 
         def _marks_at(at: int) -> None:
-            """轮末摘要行(Thought for Xs / ran N tools); 锚对不上(compaction 后)静默跳过。"""
             mk = marks_by_at.get(at)
             if mk:
                 parts = []
@@ -825,7 +1160,7 @@ class ChatApp(App):
                 if mk.get("tools"):
                     parts.append(f"ran {mk['tools']} tool call{'s' if mk['tools'] > 1 else ''}")
                 if parts:
-                    self.log_write(f"\n[dim]{', '.join(parts)}[/dim]")
+                    self.log_write(f"[dim]{', '.join(parts)}[/dim]")
 
         for idx, m in enumerate(msgs):
             content = m.get("content")
@@ -840,7 +1175,7 @@ class ChatApp(App):
                     if isinstance(b, dict) and b.get("type") == "tool_result":
                         name, args = tool_uses_by_id.get(b.get("tool_use_id"), ("?", {}))
                         self.log_write(tool_line(name, args, 0.0, result_text(b.get("content", ""))))
-                _marks_at(idx + 1)  # 打断轮: 轮末收尾的 tool_result 之后即轮结束点
+                _marks_at(idx + 1)
             elif m["role"] == "user":
                 self.chat_line("user", text_of(m).strip())
             elif m["role"] == "assistant":
@@ -849,39 +1184,32 @@ class ChatApp(App):
                     if isinstance(b, dict) and b.get("type") == "thinking"
                 ) if isinstance(content, list) else ""
                 t = text_of(m).strip()
-                if (th and SHOW_THINKING) or t:  # 空段不画(纯 tool_use 的中间响应)
+                if (th and SHOW_THINKING) or t:
                     self.log_render(_turn_renderable(th, t, fold=True))
-                    _marks_at(idx + 1)  # 普通轮: 最后一条 assistant 即轮末
-        self.log_write("")
+                    _marks_at(idx + 1)
 
-    def resume_picker(self) -> None:
+    def resume_picker(self) -> list | None:
+        from rich.markup import escape
+
         picks = list_sessions(self.workdir)
         if not picks:
             self.log_write("[dim]本工作目录还没有历史会话[/dim]")
-            return
+            return None
+        self._erase_frame()
+        for i, (_f, ts, snippet, n) in enumerate(picks, 1):
+            self.console.print(f"  [cyan]{i}[/]. {ts}  ({n} 条)  {escape(snippet)}")
+        self.console.print("[dim]输入编号选会话, 空回车取消[/dim]")
+        self._dirty = True
+        return picks
 
-        def done(idx) -> None:
-            if idx is None:
-                return
-            self.do_resume(picks[idx][0])
 
-        self.push_screen(ResumeScreen(picks), done)
-
-
+# ---- 无头模式(与 tui.py 同语义) ----
 def _headless(argv: list[str]) -> None:
-    """无头模式: 单次 invoke, 不起 UI, 不挂 cron。
-
-    uv run tui.py -p "问题"            # 新会话跑一轮, 落盘并在 stderr 报 session id
-    uv run tui.py -p -r <id> "问题"    # 接指定会话继续(原地续写); id 不存在则以该 id 新开
-    uv run tui.py -p -r "问题"         # -r 不带 id = 接最近一个会话
-    uv run ... -p -r <id> < prompt.txt # prompt 也可走 stdin
-    """
     prompt_parts: list[str] = []
     resume_id: str | None = None
     i = 0
     while i < len(argv):
         if argv[i] in ("--resume", "-r"):
-            # -r 后面紧跟的算会话 id; 不带 id = 最近一个会话
             if i + 1 < len(argv) and not argv[i + 1].startswith("-"):
                 resume_id = argv[i + 1]
                 i += 2
@@ -894,7 +1222,6 @@ def _headless(argv: list[str]) -> None:
     prompt = " ".join(prompt_parts).strip() or sys.stdin.read().strip()
     if not prompt:
         raise SystemExit("无头模式需要 prompt: -p \"问题\" 或 stdin 传入")
-
     agent = build_agent(os.getcwd())
     workdir = os.getcwd()
     messages = []
@@ -914,18 +1241,15 @@ def _headless(argv: list[str]) -> None:
                 agent.restore(data["usage"])
             print(f"(接着会话 {sess_path.stem}, 已有 {len(messages)} 条)", file=sys.stderr)
         else:
-            # id 不存在 = 以该 id 新开会话, 本轮结束后落盘, 后续可复用
             print(f"(新会话 {sess_path.stem})", file=sys.stderr)
     messages = messages + [{"role": "user", "content": prompt}]
-    # Ctrl+C 两段式(hermes 非交互同语义): 第一次置打断标志让 loop 协作式收尾
-    # (partial 内容照常落盘, token 照常记账), 第二次恢复默认行为硬退。
-    import signal
+    import signal as _sig
 
     def _sigint(signum, frame):
         agent.interrupt("用户打断")
-        signal.signal(signal.SIGINT, signal.SIG_DFL)
+        _sig.signal(_sig.SIGINT, _sig.SIG_DFL)
 
-    signal.signal(signal.SIGINT, _sigint)
+    _sig.signal(_sig.SIGINT, _sigint)
     agent.invoke(messages)
     if agent.was_interrupted:
         print("(已打断, 以上是收到的部分内容)", file=sys.stderr)
@@ -948,39 +1272,8 @@ def main() -> None:
     argv = sys.argv[1:]
     resume_id = None
     if argv and argv[0] in ("--resume", "-r"):
-        resume_id = argv[1] if len(argv) > 1 else ""  # 不带 id = 最近活跃会话
-    # 键位表: 用户配置 patch 到 ChatApp 类属性上(textual 只认类属性, 实例无效),
-    # _merged_bindings 是 __init_subclass__ 时的缓存, patch 后必须重建。
-    table, kb_issues = load_keybindings()
-    ChatApp.BINDINGS = [
-        # priority=True: 输入框(TextArea)内置 ctrl+c=copy 会吃键, 不加到不了 App
-        Binding(k, action, show=False, priority=True)
-        for k, action in sorted(table.items())
-    ]
-    ChatApp._merged_bindings = ChatApp._merge_bindings()
-    app = ChatApp(resume_id, keybinding_issues=kb_issues)
-
-    # Windows 合成终端(PyCharm 等)把 ctrl+c 做成 CTRL_C_EVENT(SIGINT) 而非控制台按键:
-    # 真控制台 Textual 清了 ENABLE_PROCESSED_INPUT 自己收 \x03 走上面的绑定;
-    # PyCharm 这类终端绕过按键层, 默认行为是 KeyboardInterrupt 整个退出(不是打断当前轮)。
-    # 兜底: SIGINT 转投同一个 action_interrupt 状态机(一次打断轮/二次退出), 与键绑定同语义。
-    def _sigint_to_interrupt(signum, frame):
-        try:
-            app.call_later(app.action_interrupt)  # call_later→post_message 跨线程安全
-        except Exception:
-            pass  # app 已收摊, 无处可投
-    signal.signal(signal.SIGINT, _sigint_to_interrupt)
-
-    try:
-        app.run()
-    except KeyboardInterrupt:  # Textual 没接住的 ^C(启动中/空闲期), 直接退
-        pass
-    # 退出后提示续聊命令(有对话内容才提示); ctrl+c 打断轮也已落盘
-    if app.state["messages"] and app.sess_path is not None:
-        print(f"(继续对话: zany -r {app.sess_path.stem})", file=sys.stderr)
-    # 后台线程(@work 的 agent.invoke / MCP probe)可能还挂着, sys.exit 会死等
-    # 它们 —— 会话每轮都已落盘, 直接硬退
-    os._exit(0)
+        resume_id = argv[1] if len(argv) > 1 else ""
+    ZanyTui(os.getcwd(), resume_id).run()
 
 
 if __name__ == "__main__":

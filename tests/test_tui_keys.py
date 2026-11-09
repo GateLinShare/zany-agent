@@ -1,4 +1,4 @@
-# tui2 Windows 读键归一化: msvcrt 原始字符必须翻译成与 POSIX _parse_posix 同一套符号名。
+# tui Windows 读键归一化: msvcrt 原始字符必须翻译成与 POSIX _parse_posix 同一套符号名。
 # 注入假 msvcrt 模块喂键序, 不碰真终端。
 import sys
 import types
@@ -9,15 +9,15 @@ fake.kbhit = lambda: bool(_state["buf"])
 fake.getwch = lambda: _state["buf"].pop(0)
 sys.modules["msvcrt"] = fake
 
-import tui2
+import tui
 
-t = tui2.Term()
+t = tui.Term()
 t._is_win = True
 t._pend = ""
 
 # _win_key_ready 走 PeekConsoleInput(真控制台), 管道环境下永远返回"无键",
 # 喂键循环会永远等下去; 拍平成"假缓冲有键就绪"(t._pend 是 agent 自己的缓冲, 不算控制台队列)
-tui2._win_key_ready = lambda: bool(_state["buf"])
+tui._win_key_ready = lambda: bool(_state["buf"])
 
 
 def keys(seq: list[str]) -> list[str]:
@@ -44,4 +44,4 @@ assert keys(["\x1b[200~", "h", "i", "\r", "y", "o", "\x1b[201~"]) == [
 ]
 # 普通字符原样透传
 assert keys(["a", "中"]) == ["a", "中"]
-print("tui2 key mapping: OK")
+print("tui key mapping: OK")
