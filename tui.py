@@ -469,7 +469,9 @@ class Term:
             return "CTRL_D"
         if c in ("\x08", "\x7f"):
             return "BS"
-        return c
+        # ctrl 系编辑键与 POSIX _parse_posix 同表(ctrl+z 撤销/ctrl+a/e/k/u/w)
+        return {"\x01": "HOME", "\x05": "END", "\x0b": "KILL_END",
+                "\x15": "KILL_BEG", "\x17": "KILL_WORD", "\x1a": "UNDO"}.get(c, c)
 
 
 # ---- 输入编辑器(多行, claude 最小键位集) ----
