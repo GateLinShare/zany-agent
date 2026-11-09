@@ -227,13 +227,19 @@ def cells(s: str) -> int:
     return cell_len(s)
 
 
-def clip_width(s: str, width: int) -> str:
-    """按显示宽截断(不折行, 活动区行数才可控)。"""
-    if cells(s) <= width:
-        return s
-    while s and cells(s) > width:
-        s = s[:-1]
-    return s
+def _split_width(s: str, width: int) -> list[str]:
+    """按显示宽贪心折行(CJK 双宽), 空串返 [""]。输入区把逻辑行折成视觉行用。"""
+    if s == "":
+        return [""]
+    rows: list[str] = []
+    while cells(s) > width and width > 0:
+        cut = width
+        while cut > 1 and cells(s[:cut]) > width:
+            cut -= 1
+        rows.append(s[:cut])
+        s = s[cut:]
+    rows.append(s)
+    return rows
 
 
 class Term:
@@ -615,9 +621,17 @@ class ZanyTui:
     # ---- 启动/收摊 ----
     def start(self) -> None:
         self.term.setup()
-        self.console.print("[bold]◆ Welcome to zany[/]")
-        self.console.print(f"[dim]  工作目录: {self.workdir} · tools: {', '.join(self.agent.tools)}[/]")
-        self.console.print("[dim]  /new 新对话 · /resume 恢复 · /goal 持续目标 · ctrl+c 打断/退出 · ctrl+z 撤销输入[/]\n")
+        from rich.panel import Panel
+        from rich.box import ROUNDED
+
+        tip = Text.assemble(
+            ("◆ Welcome to zany\n", "bold khaki1"),
+            (f"工作目录: {self.workdir} · tools: {', '.join(self.agent.tools)}\n", "khaki1"),
+            ("/new 新对话 · /resume 恢复 · /goal 持续目标\n", "khaki1"),
+            ("ctrl+c 打断/退出 · ctrl+z 撤销输入 · exit 退出", "khaki1"),
+        )
+        self.console.print(Panel(tip, box=ROUNDED, border_style="khaki1", padding=(0, 1)))
+        self.console.print()
         if self.resume_id is not None:
             if self.resume_id:
                 path = project_dir(self.workdir) / f"{self.resume_id}.json"
@@ -714,15 +728,14 @@ class ZanyTui:
             secs = int(time.monotonic() - self._turn_t0)
             toks = fmt_tokens(max(1, self._out_chars // 3))
             rows.append(f"{C_SPIN}{fr}{C_RESET} {C_DIM}{verb}… (ctrl+c 打断 · ~{toks} tok · {secs}s){C_RESET}")
-        # 输入框
-        iw = max(16, w - 5)
-        rows.append(f"{C_BORDER}╭{'─' * (w - 2)}╮{C_RESET}")
-        for i, line in enumerate(self.ed.lines):
-            mark = f"{C_TEXT}>{C_RESET} " if i == 0 else "  "  # > 而非 ❯: 控制台字体没 U+276F 字形; 白色(37)而非紫
-            body = clip_width(line, iw)
-            pad = " " * max(0, iw - cells(body))
-            rows.append(f"{C_BORDER}│{C_RESET} {mark}{body}{pad}{C_RESET}{C_BORDER}│{C_RESET}")
-        rows.append(f"{C_BORDER}╰{'─' * (w - 2)}╯{C_RESET}")
+        # 输入区: 上下两条线无侧边(claude 同款), 逻辑行按宽折成视觉行
+        chunks_per_line = [_split_width(l, w - 2) for l in self.ed.lines]
+        rows.append(f"{C_BORDER}{'─' * w}{C_RESET}")
+        for li, chunks in enumerate(chunks_per_line):
+            for ci, chunk in enumerate(chunks):
+                mark = f"{C_TEXT}>{C_RESET} " if (li == 0 and ci == 0) else "  "
+                rows.append(f"{mark}{chunk}{C_RESET}")
+        rows.append(f"{C_BORDER}{'─' * w}{C_RESET}")
         # 工具条
         if self._exit_pending and time.monotonic() - self._exit_pending <= EXIT_WINDOW:
             hint = f"{C_WARN}» 再按一次 ctrl+c 退出{C_RESET}"
@@ -741,8 +754,13 @@ class ZanyTui:
         self.term.write("\n".join(rows) + "\n")
         self._frame_rows = len(rows)
         if self.term.vt:
-            up = len(self.ed.lines) + 2 - self.ed.cy  # 帧尾写完带 \n(光标在框下一空行): 框底边+工具条隔 2 行到输入行
-            col = 4 + cells(self.ed.lines[self.ed.cy][:self.ed.cx])
+            # 光标逻辑位(cy,cx) → 视觉行: 贪心折行对前缀一致, 用前缀折行数定位
+            pre = _split_width(self.ed.lines[self.ed.cy][:self.ed.cx], w - 2)
+            row_in = len(pre) - 1
+            rows_below = sum(len(c) for c in chunks_per_line[self.ed.cy + 1:]) \
+                + len(chunks_per_line[self.ed.cy]) - 1 - row_in + 2  # 后续输入行 + 底边线 + 工具条
+            up = rows_below + 1  # 帧尾写完带 \n(光标在工具条下一空行)
+            col = 2 + cells(pre[-1])  # "> " 前缀 2 格
             self.term.write(f"{ESC}[{up}A{ESC}[{col + 1}G")
             self._park_down = up  # 下次擦帧先原路下移回来, 防重绘整体上浮
 
