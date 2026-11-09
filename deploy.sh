@@ -15,6 +15,13 @@ fi
 cd "$(dirname "$0")"
 REPO=$(pwd)
 
+# 0/4 .env: 运行时数据根(~/.zany)下缺 .env 时自 env.example 播种(填好密钥即可用)
+if [ ! -f "$HOME/.zany/.env" ]; then
+  mkdir -p "$HOME/.zany"
+  cp env.example "$HOME/.zany/.env"
+  echo "[0/4] 已播种 $HOME/.zany/.env(自 env.example, 需填 ANTHROPIC_* 密钥)"
+fi
+
 # 1/4 uv: 没有就装(官方安装器, 落 ~/.local/bin)
 if command -v uv >/dev/null 2>&1; then
   echo "[1/4] uv 已有: $(command -v uv)"
