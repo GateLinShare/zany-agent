@@ -114,7 +114,7 @@ def tool_line(name: str, args: dict, dur: float, output: str) -> str:
         detail = ("..." + p[-32:]) if len(p) > 35 else p
     err = output.startswith("错误:")
     detail = f"[red]{escape(detail)}[/red]" if err else escape(detail)
-    fail = "[red]✗ 失败[/red]" if err else ""
+    fail = "[red]× 失败[/red]" if err else ""  # × 而非 ✗: 同 ❯/✻, dingbat 区无字形
     durs = f"  [dim]{dur:.1f}s[/dim]" if dur else ""
     return f"[dim]┊[/] {emoji} {verb:<9} {detail}{durs}{fail}"
 
@@ -165,7 +165,7 @@ def _turn_renderable(think: str, body: str, fold: bool = False, md: bool = True)
 # Windows: msvcrt.getwch + SetConsoleMode 清 ENABLE_PROCESSED_INPUT + 开 stdout VT。
 # VT 开不出来(老 conhost)→ 退行式(烙定区照常, 活动区关)。
 ESC = "\x1b"
-_SPINNER_FRAMES = "✻✽✶✳✢·"
+_SPINNER_FRAMES = "◆◇●○·"  # GB2312 内字形: ✻✽✶✳ 这类 dingbat 在新宋体等控制台字体里渲染成方框
 _SPINNER_VERBS = ("Deliberating", "Pondering", "Scheming", "Simmering",
                   "Noodling", "Herding", "Conjuring", "Brewing", "Vibing")
 
@@ -177,19 +177,69 @@ C_SPIN = "\x1b[93m"
 C_WARN = "\x1b[33m"
 C_RESET = "\x1b[0m"
 
+# Windows 控制台输入记录: msvcrt.kbhit 对 FOCUS/MOUSE 记录不可靠, getwch 吞掉
+# 非键记录后在 ReadConsoleInput 上无限阻塞(实测) —— 读键必须自己 Peek 过滤。
+if sys.platform == "win32":
+    import ctypes as _ct
+
+    class _COORD(_ct.Structure):
+        _fields_ = [("X", _ct.c_short), ("Y", _ct.c_short)]
+
+    class _KEY_EVENT(_ct.Structure):
+        _fields_ = [("bKeyDown", _ct.c_int), ("wRepeatCount", _ct.c_ushort),
+                    ("wVirtualKeyCode", _ct.c_ushort), ("wVirtualScanCode", _ct.c_ushort),
+                    ("UnicodeChar", _ct.c_wchar), ("dwControlKeyState", _ct.c_uint)]
+
+    class _MOUSE_EVENT(_ct.Structure):
+        _fields_ = [("dwMousePosition", _COORD), ("dwButtonState", _ct.c_uint),
+                    ("dwControlKeyState", _ct.c_uint), ("dwEventFlags", _ct.c_uint)]
+
+    class _FOCUS_EVENT(_ct.Structure):
+        _fields_ = [("bSetFocus", _ct.c_int)]
+
+    class _EVENT_U(_ct.Union):
+        _fields_ = [("KeyEvent", _KEY_EVENT), ("MouseEvent", _MOUSE_EVENT),
+                    ("FocusEvent", _FOCUS_EVENT)]
+
+    class _WIN_INPUT_RECORD(_ct.Structure):
+        _fields_ = [("EventType", _ct.c_ushort), ("Event", _EVENT_U)]
+
+    def _win_key_ready() -> bool:
+        """输入缓冲里有没有可读的 key-down; 顺路把 FOCUS/MOUSE/SIZE 等非键记录丢掉。"""
+        k32 = _ct.windll.kernel32
+        h = k32.GetStdHandle(-10)
+        rec = _WIN_INPUT_RECORD()
+        n = _ct.c_uint32()
+        while True:
+            if not k32.PeekConsoleInputW(h, _ct.byref(rec), 1, _ct.byref(n)) or not n.value:
+                return False
+            if rec.EventType == 0x1 and rec.Event.KeyEvent.bKeyDown:
+                return True
+            if not k32.ReadConsoleInputW(h, _ct.byref(rec), 1, _ct.byref(n)):
+                return False
+else:
+    def _win_key_ready() -> bool:
+        return False
+
 
 def cells(s: str) -> int:
     from rich.cells import cell_len
     return cell_len(s)
 
 
-def clip_width(s: str, width: int) -> str:
-    """按显示宽截断(不折行, 活动区行数才可控)。"""
-    if cells(s) <= width:
-        return s
-    while s and cells(s) > width:
-        s = s[:-1]
-    return s
+def _split_width(s: str, width: int) -> list[str]:
+    """按显示宽贪心折行(CJK 双宽), 空串返 [""]。输入区把逻辑行折成视觉行用。"""
+    if s == "":
+        return [""]
+    rows: list[str] = []
+    while cells(s) > width and width > 0:
+        cut = width
+        while cut > 1 and cells(s[:cut]) > width:
+            cut -= 1
+        rows.append(s[:cut])
+        s = s[cut:]
+    rows.append(s)
+    return rows
 
 
 class Term:
@@ -249,7 +299,9 @@ class Term:
             hin = k32.GetStdHandle(-10)
             m2 = ctypes.c_uint32()
             if k32.GetConsoleMode(hin, ctypes.byref(m2)):
-                k32.SetConsoleMode(hin, m2.value & ~0x0001 & ~0x0002 & ~0x0004)
+                # 关 processed/line/echo + window/mouse: FOCUS/MOUSE 记录混进输入缓冲会让
+                # getwch 吞掉后阻塞在 ReadConsoleInput(实测踩过), 从源头不生成
+                k32.SetConsoleMode(hin, m2.value & ~0x0001 & ~0x0002 & ~0x0004 & ~0x0008 & ~0x0010)
             return True
         except Exception:
             return False
@@ -341,19 +393,58 @@ class Term:
             self._pend = p[n:]
 
     def _read_key_win(self, timeout: float | None) -> str | None:
+        """msvcrt 读键 → 与 _parse_posix 同一套符号名(CTRL_C/BS/UP/…)。
+        _pend 复用为 str 缓冲(单进程只会走一条平台路径); 粘贴序列是整段注入,
+        一次收齐缓冲里已有的字符再逐键出。等键用 _win_key_ready()(PeekConsoleInput
+        只认 key-down): msvcrt.kbhit 对非键记录会误报, getwch 空吞非键记录后
+        无限阻塞 → 主循环冻结(实测踩过)。"""
         import msvcrt
         if timeout is not None:
             end = time.monotonic() + timeout
-            while not msvcrt.kbhit():
+            while not self._pend and not _win_key_ready():
                 if time.monotonic() >= end:
                     return None
                 time.sleep(0.02)
-        ch = msvcrt.getwch()
-        if ch in ("\x00", "\xe0"):
-            code = msvcrt.getwch()
+        if not self._pend:
+            self._pend = msvcrt.getwch()
+            while _win_key_ready():  # 粘贴/快速连打: 突发内字符一次收进缓冲
+                self._pend += msvcrt.getwch()
+        p = self._pend
+        c = p[0]
+        if c in ("\x00", "\xe0"):  # 扩展键: 两段 getwch
+            if len(p) < 2:
+                return None  # 凑齐再解
+            self._pend = p[2:]
             return {"H": "UP", "P": "DOWN", "K": "LEFT", "M": "RIGHT",
-                    "G": "HOME", "O": "END", "S": "DEL"}.get(code, "")
-        return ch
+                    "G": "HOME", "O": "END", "S": "DEL"}.get(p[1], "")
+        if c == "\x1b":
+            # bracketed paste 标记(Windows Terminal/ConPTY 认 ?2004h); 不认识的
+            # ESC 序列整体丢弃。ponytail: 标记分片到达超 50ms 宽限就弃, 退化为逐行粘贴
+            deadline = time.monotonic() + 0.05
+            while len(p) < 6 and "\x1b[200~\x1b[201~".find(p) >= 0:  # 还是标记前缀: 等
+                if _win_key_ready():
+                    self._pend += msvcrt.getwch()
+                    p = self._pend
+                elif time.monotonic() >= deadline:
+                    break
+                else:
+                    time.sleep(0.005)
+            if p.startswith("\x1b[200~"):
+                self._pend = p[6:]
+                return "PASTE_ON"
+            if p.startswith("\x1b[201~"):
+                self._pend = p[6:]
+                return "PASTE_OFF"
+            self._pend = ""
+            return ""
+        self._pend = p[1:]
+        if c == "\x03":
+            return "CTRL_C"
+        if c == "\x04":
+            return "CTRL_D"
+        if c in ("\x08", "\x7f"):
+            return "BS"
+        return c
 
 
 # ---- 输入编辑器(多行, claude 最小键位集) ----
@@ -530,9 +621,17 @@ class ZanyTui:
     # ---- 启动/收摊 ----
     def start(self) -> None:
         self.term.setup()
-        self.console.print("[bold]✻ Welcome to zany[/]")
-        self.console.print(f"[dim]  工作目录: {self.workdir} · tools: {', '.join(self.agent.tools)}[/]")
-        self.console.print("[dim]  /new 新对话 · /resume 恢复 · /goal 持续目标 · ctrl+c 打断/退出 · ctrl+z 撤销输入[/]\n")
+        from rich.panel import Panel
+        from rich.box import ROUNDED
+
+        tip = Text.assemble(
+            ("◆ Welcome to zany\n", "bold khaki1"),
+            (f"工作目录: {self.workdir} · tools: {', '.join(self.agent.tools)}\n", "khaki1"),
+            ("/new 新对话 · /resume 恢复 · /goal 持续目标\n", "khaki1"),
+            ("ctrl+c 打断/退出 · ctrl+z 撤销输入 · exit 退出", "khaki1"),
+        )
+        self.console.print(Panel(tip, box=ROUNDED, border_style="khaki1", padding=(0, 1)))
+        self.console.print()
         if self.resume_id is not None:
             if self.resume_id:
                 path = project_dir(self.workdir) / f"{self.resume_id}.json"
@@ -629,15 +728,14 @@ class ZanyTui:
             secs = int(time.monotonic() - self._turn_t0)
             toks = fmt_tokens(max(1, self._out_chars // 3))
             rows.append(f"{C_SPIN}{fr}{C_RESET} {C_DIM}{verb}… (ctrl+c 打断 · ~{toks} tok · {secs}s){C_RESET}")
-        # 输入框
-        iw = max(16, w - 5)
-        rows.append(f"{C_BORDER}╭{'─' * (w - 2)}╮{C_RESET}")
-        for i, line in enumerate(self.ed.lines):
-            mark = f"{C_PROMPT}❯{C_RESET} " if i == 0 else "  "
-            body = clip_width(line, iw)
-            pad = " " * max(0, iw - cells(body))
-            rows.append(f"{C_BORDER}│{C_RESET} {mark}{body}{pad}{C_RESET}{C_BORDER}│{C_RESET}")
-        rows.append(f"{C_BORDER}╰{'─' * (w - 2)}╯{C_RESET}")
+        # 输入区: 上下两条线无侧边(claude 同款), 逻辑行按宽折成视觉行
+        chunks_per_line = [_split_width(l, w - 2) for l in self.ed.lines]
+        rows.append(f"{C_BORDER}{'─' * w}{C_RESET}")
+        for li, chunks in enumerate(chunks_per_line):
+            for ci, chunk in enumerate(chunks):
+                mark = f"{C_TEXT}>{C_RESET} " if (li == 0 and ci == 0) else "  "
+                rows.append(f"{mark}{chunk}{C_RESET}")
+        rows.append(f"{C_BORDER}{'─' * w}{C_RESET}")
         # 工具条
         if self._exit_pending and time.monotonic() - self._exit_pending <= EXIT_WINDOW:
             hint = f"{C_WARN}» 再按一次 ctrl+c 退出{C_RESET}"
@@ -656,8 +754,13 @@ class ZanyTui:
         self.term.write("\n".join(rows) + "\n")
         self._frame_rows = len(rows)
         if self.term.vt:
-            up = len(self.ed.lines) + 2 - self.ed.cy  # 帧尾写完带 \n(光标在框下一空行): 框底边+工具条隔 2 行到输入行
-            col = 4 + cells(self.ed.lines[self.ed.cy][:self.ed.cx])
+            # 光标逻辑位(cy,cx) → 视觉行: 贪心折行对前缀一致, 用前缀折行数定位
+            pre = _split_width(self.ed.lines[self.ed.cy][:self.ed.cx], w - 2)
+            row_in = len(pre) - 1
+            rows_below = sum(len(c) for c in chunks_per_line[self.ed.cy + 1:]) \
+                + len(chunks_per_line[self.ed.cy]) - 1 - row_in + 2  # 后续输入行 + 底边线 + 工具条
+            up = rows_below + 1  # 帧尾写完带 \n(光标在工具条下一空行)
+            col = 2 + cells(pre[-1])  # "> " 前缀 2 格
             self.term.write(f"{ESC}[{up}A{ESC}[{col + 1}G")
             self._park_down = up  # 下次擦帧先原路下移回来, 防重绘整体上浮
 
@@ -697,6 +800,10 @@ class ZanyTui:
             self._dirty = True
             return
         if key in ("\r", "\n"):  # \n 兼底: 没关掉 ICRNL 的环境 Enter 会变 \n
+            if self.ed.pasting:
+                self.ed.handle(key)  # 粘贴内的换行, 不提交
+                self._dirty = True
+                return
             if self.ed.lines[self.ed.cy].endswith("\\"):
                 self.ed.handle("\r")  # 行尾反斜杠 = 软换行(claude 同款), 不提交
                 self._dirty = True
@@ -797,7 +904,7 @@ class ZanyTui:
         try:
             while True:
                 try:
-                    text = input(f"{C_PROMPT}❯ {C_RESET}").strip()
+                    text = input(f"{C_TEXT}> {C_RESET}").strip()
                 except EOFError:
                     break
                 except KeyboardInterrupt:
