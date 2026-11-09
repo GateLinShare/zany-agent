@@ -718,7 +718,7 @@ class ZanyTui:
         iw = max(16, w - 5)
         rows.append(f"{C_BORDER}╭{'─' * (w - 2)}╮{C_RESET}")
         for i, line in enumerate(self.ed.lines):
-            mark = f"{C_PROMPT}>{C_RESET} " if i == 0 else "  "  # > 而非 ❯: 控制台字体没 U+276F 字形, 渲成空白
+            mark = f"{C_TEXT}>{C_RESET} " if i == 0 else "  "  # > 而非 ❯: 控制台字体没 U+276F 字形; 白色(37)而非紫
             body = clip_width(line, iw)
             pad = " " * max(0, iw - cells(body))
             rows.append(f"{C_BORDER}│{C_RESET} {mark}{body}{pad}{C_RESET}{C_BORDER}│{C_RESET}")
@@ -886,7 +886,7 @@ class ZanyTui:
         try:
             while True:
                 try:
-                    text = input(f"{C_PROMPT}> {C_RESET}").strip()
+                    text = input(f"{C_TEXT}> {C_RESET}").strip()
                 except EOFError:
                     break
                 except KeyboardInterrupt:
