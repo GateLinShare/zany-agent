@@ -69,14 +69,14 @@ def main():
 
     def top_row():
         for i, line in enumerate(screen.display):
-            if "╭" in line and "╮" in line:
-                return i
+            if line.strip() and set(line.strip()) == {"─"}:
+                return i  # 输入框顶边线(转正后无侧边框, 纯 ─ 整行)
         return None
 
     def input_text():
         for line in screen.display:
-            if "❯" in line:
-                return line.split("❯", 1)[1].strip().rstrip("│").strip()
+            if line.startswith("> "):
+                return line[2:].strip()
         return ""
 
     try:
