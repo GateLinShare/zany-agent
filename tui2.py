@@ -177,6 +177,50 @@ C_SPIN = "\x1b[93m"
 C_WARN = "\x1b[33m"
 C_RESET = "\x1b[0m"
 
+# Windows 控制台输入记录: msvcrt.kbhit 对 FOCUS/MOUSE 记录不可靠, getwch 吞掉
+# 非键记录后在 ReadConsoleInput 上无限阻塞(实测) —— 读键必须自己 Peek 过滤。
+if sys.platform == "win32":
+    import ctypes as _ct
+
+    class _COORD(_ct.Structure):
+        _fields_ = [("X", _ct.c_short), ("Y", _ct.c_short)]
+
+    class _KEY_EVENT(_ct.Structure):
+        _fields_ = [("bKeyDown", _ct.c_int), ("wRepeatCount", _ct.c_ushort),
+                    ("wVirtualKeyCode", _ct.c_ushort), ("wVirtualScanCode", _ct.c_ushort),
+                    ("UnicodeChar", _ct.c_wchar), ("dwControlKeyState", _ct.c_uint)]
+
+    class _MOUSE_EVENT(_ct.Structure):
+        _fields_ = [("dwMousePosition", _COORD), ("dwButtonState", _ct.c_uint),
+                    ("dwControlKeyState", _ct.c_uint), ("dwEventFlags", _ct.c_uint)]
+
+    class _FOCUS_EVENT(_ct.Structure):
+        _fields_ = [("bSetFocus", _ct.c_int)]
+
+    class _EVENT_U(_ct.Union):
+        _fields_ = [("KeyEvent", _KEY_EVENT), ("MouseEvent", _MOUSE_EVENT),
+                    ("FocusEvent", _FOCUS_EVENT)]
+
+    class _WIN_INPUT_RECORD(_ct.Structure):
+        _fields_ = [("EventType", _ct.c_ushort), ("Event", _EVENT_U)]
+
+    def _win_key_ready() -> bool:
+        """输入缓冲里有没有可读的 key-down; 顺路把 FOCUS/MOUSE/SIZE 等非键记录丢掉。"""
+        k32 = _ct.windll.kernel32
+        h = k32.GetStdHandle(-10)
+        rec = _WIN_INPUT_RECORD()
+        n = _ct.c_uint32()
+        while True:
+            if not k32.PeekConsoleInputW(h, _ct.byref(rec), 1, _ct.byref(n)) or not n.value:
+                return False
+            if rec.EventType == 0x1 and rec.Event.KeyEvent.bKeyDown:
+                return True
+            if not k32.ReadConsoleInputW(h, _ct.byref(rec), 1, _ct.byref(n)):
+                return False
+else:
+    def _win_key_ready() -> bool:
+        return False
+
 
 def cells(s: str) -> int:
     from rich.cells import cell_len
@@ -249,7 +293,9 @@ class Term:
             hin = k32.GetStdHandle(-10)
             m2 = ctypes.c_uint32()
             if k32.GetConsoleMode(hin, ctypes.byref(m2)):
-                k32.SetConsoleMode(hin, m2.value & ~0x0001 & ~0x0002 & ~0x0004)
+                # 关 processed/line/echo + window/mouse: FOCUS/MOUSE 记录混进输入缓冲会让
+                # getwch 吞掉后阻塞在 ReadConsoleInput(实测踩过), 从源头不生成
+                k32.SetConsoleMode(hin, m2.value & ~0x0001 & ~0x0002 & ~0x0004 & ~0x0008 & ~0x0010)
             return True
         except Exception:
             return False
@@ -341,19 +387,58 @@ class Term:
             self._pend = p[n:]
 
     def _read_key_win(self, timeout: float | None) -> str | None:
+        """msvcrt 读键 → 与 _parse_posix 同一套符号名(CTRL_C/BS/UP/…)。
+        _pend 复用为 str 缓冲(单进程只会走一条平台路径); 粘贴序列是整段注入,
+        一次收齐缓冲里已有的字符再逐键出。等键用 _win_key_ready()(PeekConsoleInput
+        只认 key-down): msvcrt.kbhit 对非键记录会误报, getwch 空吞非键记录后
+        无限阻塞 → 主循环冻结(实测踩过)。"""
         import msvcrt
         if timeout is not None:
             end = time.monotonic() + timeout
-            while not msvcrt.kbhit():
+            while not self._pend and not _win_key_ready():
                 if time.monotonic() >= end:
                     return None
                 time.sleep(0.02)
-        ch = msvcrt.getwch()
-        if ch in ("\x00", "\xe0"):
-            code = msvcrt.getwch()
+        if not self._pend:
+            self._pend = msvcrt.getwch()
+            while _win_key_ready():  # 粘贴/快速连打: 突发内字符一次收进缓冲
+                self._pend += msvcrt.getwch()
+        p = self._pend
+        c = p[0]
+        if c in ("\x00", "\xe0"):  # 扩展键: 两段 getwch
+            if len(p) < 2:
+                return None  # 凑齐再解
+            self._pend = p[2:]
             return {"H": "UP", "P": "DOWN", "K": "LEFT", "M": "RIGHT",
-                    "G": "HOME", "O": "END", "S": "DEL"}.get(code, "")
-        return ch
+                    "G": "HOME", "O": "END", "S": "DEL"}.get(p[1], "")
+        if c == "\x1b":
+            # bracketed paste 标记(Windows Terminal/ConPTY 认 ?2004h); 不认识的
+            # ESC 序列整体丢弃。ponytail: 标记分片到达超 50ms 宽限就弃, 退化为逐行粘贴
+            deadline = time.monotonic() + 0.05
+            while len(p) < 6 and "\x1b[200~\x1b[201~".find(p) >= 0:  # 还是标记前缀: 等
+                if _win_key_ready():
+                    self._pend += msvcrt.getwch()
+                    p = self._pend
+                elif time.monotonic() >= deadline:
+                    break
+                else:
+                    time.sleep(0.005)
+            if p.startswith("\x1b[200~"):
+                self._pend = p[6:]
+                return "PASTE_ON"
+            if p.startswith("\x1b[201~"):
+                self._pend = p[6:]
+                return "PASTE_OFF"
+            self._pend = ""
+            return ""
+        self._pend = p[1:]
+        if c == "\x03":
+            return "CTRL_C"
+        if c == "\x04":
+            return "CTRL_D"
+        if c in ("\x08", "\x7f"):
+            return "BS"
+        return c
 
 
 # ---- 输入编辑器(多行, claude 最小键位集) ----
@@ -697,6 +782,10 @@ class ZanyTui:
             self._dirty = True
             return
         if key in ("\r", "\n"):  # \n 兼底: 没关掉 ICRNL 的环境 Enter 会变 \n
+            if self.ed.pasting:
+                self.ed.handle(key)  # 粘贴内的换行, 不提交
+                self._dirty = True
+                return
             if self.ed.lines[self.ed.cy].endswith("\\"):
                 self.ed.handle("\r")  # 行尾反斜杠 = 软换行(claude 同款), 不提交
                 self._dirty = True
