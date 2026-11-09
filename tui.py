@@ -92,6 +92,7 @@ TOOL_VERB = {
 
 CMD_CLIP = 60
 EXIT_WINDOW = 2.0  # ctrl+c 双击退出计时窗(秒)
+PASTE_WINDOW = 0.02  # 无标记粘贴启发式: Enter 后此窗内还有输入在途 = 粘贴流(人手连击做不到 20ms)
 
 
 def _clip(s: str, n: int = CMD_CLIP) -> str:
@@ -335,6 +336,27 @@ class Term:
             if not data:
                 return "CTRL_D"
             self._pend += data
+
+    def more_input(self, window: float = PASTE_WINDOW) -> bool:
+        """窗口内还有输入在途? 无标记粘贴启发式的判据(ink 同款):
+        PyCharm 终端/ConPTY/conhost 不透传 bracketed paste(?2004h 白开), 粘贴
+        只是高速字符流, 每行尾一个 \r; 人手不可能在 20ms 内接键 → Enter 后
+        窗口内有键 = 粘贴流的一部分。_pend 有存货也算(整块已收进缓冲)。"""
+        if self._pend:
+            return True
+        if self._is_win:
+            end = time.monotonic() + window
+            while time.monotonic() < end:
+                if _win_key_ready():
+                    return True
+                time.sleep(0.004)
+            return False
+        import select
+        try:
+            r, _, _ = select.select([self.inp], [], [], window)
+            return bool(r)
+        except (OSError, ValueError):  # 假终端/无 fileno: 按"无后续"处理
+            return False
 
     def _parse_posix(self) -> str | None:
         """_pend → 一个完整键; 不完整返回 None(等更多字节), 垃圾序列丢弃。"""
@@ -835,6 +857,13 @@ class ZanyTui:
                 self.ed.handle(key)  # 粘贴内的换行, 不提交
                 self._dirty = True
                 return
+            if self._pending_pick is None and self.term.more_input():
+                # 无标记粘贴启发式(ink 同款): Enter 后 20ms 内还有输入在途 =
+                # 终端不支持 bracketed paste(PyCharm/ConPTY), 当纯换行插入不提交;
+                # 粘完末尾无后续的 Enter 才整段提交。picker 态不启用(回车要消费弹层)
+                self.ed.insert("\n")
+                self._dirty = True
+                return
             if self.ed.lines[self.ed.cy].endswith("\\"):
                 self.ed.handle("\r")  # 行尾反斜杠 = 软换行(claude 同款), 不提交
                 self._dirty = True
@@ -924,7 +953,9 @@ class ZanyTui:
             self.stop()
 
     def _run_plain(self) -> None:
-        """无 VT 退行式: 不画框、不玩光标, input() 接行; 忙时排水队列到轮末。"""
+        """无 VT 退行式: 不画框、不玩光标, input() 接行; 忙时排水队列到轮末。
+        ponytail: cooked input() 接不住多行粘贴(终端行缓冲逐行喂), 多行粘贴在
+        此模式仍会逐行提交; 现代终端(WT/PyCharm)都能开 VT 走上面的启发式。"""
         import signal as _s
 
         def _int(sig, frm):
