@@ -57,7 +57,10 @@ from rich.style import Style
 from rich.themes import DEFAULT as _RICH_DEFAULT_THEME
 
 for _lvl in ("h1", "h2", "h3", "h4"):
-    _RICH_DEFAULT_THEME.styles[f"markdown.{_lvl}"] = Style.parse("bold #d4d4d4")
+    _RICH_DEFAULT_THEME.styles[f"markdown.{_lvl}"] = Style.parse("bold #e8e8e8")
+# 正文亮一档(用户反馈 #d4d4d4 偏暗): markdown 段落/列表默认色走主题, 纯文本分支显式同色
+_RICH_DEFAULT_THEME.styles["markdown.paragraph"] = Style.parse("#e8e8e8")
+_RICH_DEFAULT_THEME.styles["markdown.item"] = Style.parse("#e8e8e8")
 
 
 def fmt_tokens(n: int) -> str:
@@ -150,13 +153,13 @@ def _turn_renderable(think: str, body: str, fold: bool = False, md: bool = True)
         head = not (think.strip() and SHOW_THINKING)
         if _MD_STRUCT.match(first):
             if head:
-                parts.append(Text("●", style="#d4d4d4"))
-            parts.append(Markdown(body.strip()) if md else Text(body.strip(), style="#d4d4d4"))
+                parts.append(Text("●", style="#e8e8e8"))
+            parts.append(Markdown(body.strip()) if md else Text(body.strip(), style="#e8e8e8"))
         else:
-            dot = Text("● ", style="#d4d4d4") if head else Text("")
-            parts.append(dot + Text(first, style="#d4d4d4"))
+            dot = Text("● ", style="#e8e8e8") if head else Text("")
+            parts.append(dot + Text(first, style="#e8e8e8"))
             if rest:
-                parts.append(Markdown(rest) if md else Text(rest, style="#d4d4d4"))
+                parts.append(Markdown(rest) if md else Text(rest, style="#e8e8e8"))
     return Group(*parts) if parts else Text("")
 
 
@@ -262,11 +265,11 @@ class Term:
         else:
             self.vt = self._posix_setup()
         if self.vt:
-            self.write(f"{ESC}[?2004h")  # bracketed paste
+            self.write(f"{ESC}[?2004h{ESC}[2 q")  # bracketed paste + 稳定方块光标(不闪)
 
     def teardown(self) -> None:
         if self.vt:
-            self.write(f"{ESC}[?2004l{ESC}[?25h")
+            self.write(f"{ESC}[?2004l{ESC}[?25h{ESC}[0 q")
         if self._raw_saved is not None:
             import termios
             try:
@@ -457,8 +460,13 @@ class Editor:
         self.cx = 0
         self.pasting = False
         self._undo: list[tuple[list[str], int, int]] = []
+        self._last_kind = ""  # 连续同类编辑(连打/连删)合并为一个撤销批次
 
-    def _snap(self) -> None:
+    def _snap(self, kind: str = "") -> None:
+        # kind 空 = 必起新批(粘贴/换行/删除词等单发动作)
+        if kind and kind == self._last_kind:
+            return
+        self._last_kind = kind
         self._undo.append((list(self.lines), self.cy, self.cx))
         if len(self._undo) > 100:
             self._undo.pop(0)
@@ -470,6 +478,7 @@ class Editor:
         self.lines = [""]
         self.cy = self.cx = 0
         self._undo.clear()
+        self._last_kind = ""
 
     def set_text(self, s: str) -> None:
         self.clear()
@@ -479,7 +488,6 @@ class Editor:
         if not s:
             return
         s = s.replace("\r\n", "\n").replace("\r", "\n")  # 粘帖含 \r 的行尾归一
-        self._snap()
         parts = s.split("\n")
         for i, part in enumerate(parts):
             line = self.lines[self.cy]
@@ -511,10 +519,11 @@ class Editor:
                 self.cy += 1
                 self.cx = 0
             else:
+                self._snap()
                 self.insert("\n")
             return
         if key == "BS":
-            self._snap()
+            self._snap("bs")
             line = self.lines[self.cy]
             if self.cx > 0:
                 self.lines[self.cy] = line[:self.cx - 1] + line[self.cx:]
@@ -526,7 +535,7 @@ class Editor:
                 self.cy -= 1
             return
         if key == "DEL":
-            self._snap()
+            self._snap("del")
             line = self.lines[self.cy]
             if self.cx < len(line):
                 self.lines[self.cy] = line[:self.cx] + line[self.cx + 1:]
@@ -575,8 +584,10 @@ class Editor:
         if key == "UNDO":
             if self._undo:
                 self.lines, self.cy, self.cx = self._undo.pop()
+                self._last_kind = ""
             return
         if len(key) == 1 and key.isprintable():
+            self._snap("ins")
             self.insert(key)
 
 
@@ -652,7 +663,7 @@ class ZanyTui:
         self._erase_frame()  # 退出不留活动区残帧
         self.term.teardown()
         if self.state["messages"] and self.sess_path is not None:
-            print(f"(继续对话: uv run tui.py -r {self.sess_path.stem})", file=sys.stderr)
+            print(f"(继续对话: zany -r {self.sess_path.stem})", file=sys.stderr)
 
     def _mcp_worker(self) -> None:
         from core.mcp import failed_servers, load_mcp_tools
@@ -691,9 +702,9 @@ class ZanyTui:
         self._erase_frame()
         if who == "user":
             self.console.print(Text())
-            self.console.print(Text(text, style="#d4d4d4 on grey27"))
+            self.console.print(Text(text, style="#e8e8e8 on grey27"))
         else:
-            self.console.print(Text(text, justify="left", style="#d4d4d4"))
+            self.console.print(Text(text, justify="left", style="#e8e8e8"))
 
     # ---- 活动区整帧重绘 ----
     def _wrap_tail(self, s: str, width: int, max_rows: int) -> list[str]:
