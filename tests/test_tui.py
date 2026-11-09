@@ -201,6 +201,26 @@ def main():
     t4._on_key("CTRL_C")  # 有草稿: 只清空不退出
     assert t4.ed.text() == "" and t4._exit_pending == 0.0
 
+    # ---- 无标记粘贴启发式: Enter 后有输入在途 → 纯换行不提交, 末尾 Enter 才整段发 ----
+    t9, agent9, _ = make_tui(tmp / "i")
+    (tmp / "i").mkdir()
+    t9.term.more_input = lambda: True  # 模拟 PyCharm/ConPTY: 粘贴字符流还在注入
+    t9.ed.insert("line1")
+    t9._on_key("\r")
+    assert t9.ed.lines == ["line1", ""] and not t9.busy  # 粘贴流内: 换行不提交
+    t9.term.more_input = lambda: False  # 粘完, 末尾 Enter 无后续
+    t9._on_key("\r")
+    assert t9.busy and "line1" in str(t9.state["messages"][0]["content"])
+    settle(t9)
+
+    # picker 态不启用启发式: 回车必须消费弹层, 不能被当粘贴换行吞掉
+    t9b, _, _ = make_tui(tmp)
+    t9b.term.more_input = lambda: True
+    t9b.term.vt = True
+    t9b._pending_pick = t9b.resume_picker()
+    t9b._on_key("\r")
+    assert t9b._pending_pick is None
+
     # ---- 渲染帧: 输入框对齐 + 光标定位不炸 ----
     t5, _, _ = make_tui(tmp / "e")
     (tmp / "e").mkdir()
