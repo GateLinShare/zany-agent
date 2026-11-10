@@ -7,7 +7,7 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-22.04, target: linux-x64, sep: ":", exe: "" }
-          - { os: macos-14, target: darwin-arm64, sep: ":", exe: "" }
+          - { os: macos-latest, target: darwin-arm64, sep: ":", exe: "" }
           - { os: windows-2022, target: win32-x64, sep: ";", exe: ".exe" }
     runs-on: ${{ matrix.os }}
     steps:
