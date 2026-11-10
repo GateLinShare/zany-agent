@@ -58,6 +58,9 @@ develop 分支的独立工作目录在 `/data01/tsn/code/tsn_files/zany-agent-de
 - develop 独有（gateway/ core/plugins/ docker/ docs/feishu-integration.md
   docs/codex-backend.md docs/multi-agent.md install_browser.sh .dockerignore）master 不收，
   merge 时自动保留；
+- pyproject.toml 是共享文件但两分支不同：develop 侧有 `[project.optional-dependencies] feishu`（gateway 依赖，
+  master 改 pyproject 后 merge 时若此段无冲突也会被静默吃掉——2026-11-13 丢过一次导致容器/宿主网关全
+  起不来）。master 动过 pyproject 后 merge 进 develop，必须 `grep feishu pyproject.toml` 确认 extra 还在；
 - develop 开工前检查：`git fetch origin && git log HEAD..origin/master --oneline`
   非空则先 merge origin/master 再干活（2026-11-06 事故根因：master 推进没及时 merge 进
   develop，叠加 filter-branch 单侧重写 → unrelated histories，develop 被迫重建）；
