@@ -18,7 +18,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # 脚本不在根目录了, 补上 import agent 的路径
-from agent import build_agent, text_of
+from core.agent import build_agent, text_of
 
 EVALS_FILE = Path(__file__).resolve().parent / "cases.jsonl"
 

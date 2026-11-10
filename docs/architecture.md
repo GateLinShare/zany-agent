@@ -7,15 +7,15 @@
 ## 1. 总体分层与文件职责
 
 ```
-agent.py          组装层:.env + SYSTEM_PROMPT + 风格包(prompt_packs) + build_agent(workdir)
-tui.py            UI 层:claude 式 TUI(2026-11-09 tui2 转正; 旧 Textual 全屏版留档 legacy/tui_textual.py)/ 会话恢复 / cron / 无头模式(-p)
-core/cron_jobs.py cron 定时任务:调度线程只入队,主循环消费后当普通输入跑一轮
+core/agent.py          组装层:.env + SYSTEM_PROMPT + 风格包(prompt_packs) + build_agent(workdir)
+core/tui.py            UI 层:claude 式 TUI(2026-11-09 tui2 转正)/ 会话恢复 / cron / 无头模式(-p)
+  core/cron_jobs.py    cron 定时任务:调度线程只入队,主循环消费后当普通输入跑一轮
 eval/main.py      评测:eval/cases.jsonl 用例 → 临时目录跑 agent → 断言判分
 core/
   loop.py         ★ agent loop:流式聚合 → 派发工具 → 回填 → 循环(约 320 行)
   model.py        模型薄封装:裸 httpx 直调 /v1/messages + 手解 SSE(不引 anthropic SDK——导入重, Windows 冷启动 6s→0.4s); 流式转发/非流式补全(压缩用)
   tools.py        Tool 统一形态 + 五内置工具(ls/read_file/write_file/edit_file/execute)
-  subagent.py     task 子代理(递归在构造处掐死)
+  subcore/agent.py     task 子代理(递归在构造处掐死)
   summarize.py    上下文压缩(改写式)
   sessions.py     会话持久化:Anthropic 原生 dict 直接 JSON 落盘
   mcp.py          MCP 工具加载(单次连接即用即走)
@@ -35,7 +35,7 @@ core/
 | **路径不做重写** | 文件工具与 execute 同一套文件系统视图(pi/hermes 同款):绝对路径字面直用,相对路径相对 workdir;无虚拟根、无越界 jail,约定写进各文件工具 description(2026-10-31 移除虚拟根与 `_resolve` 逃生口) |
 | **账本当场接** | 真实 usage 只在流式聚合时能拿到(`message_start` / `message_delta`),聚合时顺手记账;est 粗估只做压缩触发兜底 |
 
-## 2. agent 组装(agent.py)
+## 2. agent 组装(core/agent.py)
 
 ```python
 build_agent(workdir, with_mcp=True):
@@ -185,7 +185,7 @@ class Tool:
    后由 `loop.reset_tool_ledger()` 清空**(摘要会改写掉旧 read 结果,去重
    stub 那时会说谎)。
 
-### 4.4 task 子代理(core/subagent.py)
+### 4.4 task 子代理(core/subcore/agent.py)
 
 `make_task_tool()` 把"再建一个 Agent 实例"本身包装成工具:
 
@@ -291,12 +291,12 @@ BaseException(防吞 Ctrl-C);工具名带 `mcp__<server>__<tool>` 前缀(pi/herm
     变量,Anthropic 消息里没有;`at` = 回合结束时的消息条数做对齐锚,恢复回放按回合
     分组对齐,锚失配(压缩改写后)静默跳过;老会话文件无 marks;
   - `goal`:goal 模式状态(见 §9.4),`/resume` 捡回。
-- `/resume`(TUI 内嵌高亮行弹层:↑↓ 选、回车恢复、esc 取消)/ `tui.py -r [id]`
+- `/resume`(TUI 内嵌高亮行弹层:↑↓ 选、回车恢复、esc 取消)/ `core/tui.py -r [id]`
   列出最近 10 个会话(按 mtime 排序),恢复后**原地续写原文件**;`-r` 不带 id =
   最近活跃会话。
 - 恢复时回显历史:human/ai 全文,工具消息跳过。
 
-## 9. 交互层(tui.py)
+## 9. 交互层(core/tui.py)
 
 ### 9.1 claude 式 TUI(2026-11-09 tui2 转正)
 
@@ -308,8 +308,7 @@ BaseException(防吞 Ctrl-C);工具名带 `mcp__<server>__<tool>` 前缀(pi/herm
 markdown 策略:流式期间粗排纯文本(`_turn_renderable(md=False)`),轮次定稿后
 rich Markdown 整段渲染进烙定区 —— 绕开流式渲染的闪烁/竞态一整类问题。
 thinking 默认折叠 3 行(`.env` SHOW_THINKING 开全量),数据层始终全量记录;
-轮末摘要行 `Thought for Xs, ran N tool calls`。旧 Textual 全屏版留档
-`legacy/tui_textual.py`。
+轮末摘要行 `Thought for Xs, ran N tool calls`。
 
 ### 9.2 读键(Term)
 
@@ -342,12 +341,12 @@ POSIX 走 termios + select;Windows 走 getwch。Windows 侧踩过的坑已固化
 ### 9.4 入口与无头模式
 
 ```
-uv run tui.py              # interactive TUI
-uv run tui.py -r [id]      # TUI 直接恢复指定/最近活跃会话
-uv run tui.py -p "问题"              # 无头:新会话跑一轮, 落盘, stderr 报 session id
-uv run tui.py -p -r <id> "问题"      # 接指定会话继续(原地续写); id 不存在则以该 id 新开
-uv run tui.py -p -r "问题"           # 接最近一个会话
-cat prompt.txt | uv run tui.py -p    # prompt 走 stdin
+uv run core/tui.py              # interactive TUI
+uv run core/tui.py -r [id]      # TUI 直接恢复指定/最近活跃会话
+uv run core/tui.py -p "问题"              # 无头:新会话跑一轮, 落盘, stderr 报 session id
+uv run core/tui.py -p -r <id> "问题"      # 接指定会话继续(原地续写); id 不存在则以该 id 新开
+uv run core/tui.py -p -r "问题"           # 接最近一个会话
+cat prompt.txt | uv run core/tui.py -p    # prompt 走 stdin
 ```
 
 无头模式单次 invoke、不起 UI、不挂 cron,支持 Ctrl+C 两段式打断;工单 watcher 等

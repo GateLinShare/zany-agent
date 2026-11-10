@@ -19,7 +19,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DRIVER = r'''
 import sys
 sys.path.insert(0, "/data01/tsn/code/tsn_files/zany-agent")
-import tui
+from core import tui
 
 
 class FakeAgent:

@@ -12,9 +12,9 @@
 无头模式(-p)语义不变。
 
 Usage:
-    uv run tui.py                # 交互 TUI
-    uv run tui.py -p "问题"      # 无头单次
-    uv run tui.py -r [会话id]    # 恢复会话(不带 id = 最近一个)
+    uv run core/tui.py                # 交互 TUI
+    uv run core/tui.py -p "问题"      # 无头单次
+    uv run core/tui.py -r [会话id]    # 恢复会话(不带 id = 最近一个)
 """
 
 import json
@@ -31,7 +31,8 @@ from rich.console import Console, Group
 from rich.markdown import Markdown
 from rich.text import Text
 
-from agent import build_agent, text_of
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # 直接跑本文件时补仓库根, core 包可见
+from core.agent import build_agent, text_of
 from core.messages import user_content, est_tokens, result_text
 from core.mcp import config_stamp
 from core.sessions import (

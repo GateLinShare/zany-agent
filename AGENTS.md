@@ -8,15 +8,15 @@
 ## 1. 当前架构
 
 ```
-agent.py          组装层:.env + SYSTEM_PROMPT + build_agent(workdir)
-tui.py            UI 层:claude 式 TUI(烙定区 print 进原生滚动 + 底部活动区整帧重绘, 只用 CUU/ED/CHA)/ 会话恢复 / cron / 无头模式(-p); 会话标题(首轮后异步生成 + /title 手动, 落顶层 title 键, /resume 列表优先展示); 旧 Textual 全屏版在 legacy/tui_textual.py(2026-11-09 tui2 转正)
+core/agent.py          组装层:.env + SYSTEM_PROMPT + build_agent(workdir)
+core/tui.py            UI 层:claude 式 TUI(烙定区 print 进原生滚动 + 底部活动区整帧重绘, 只用 CUU/ED/CHA)/ 会话恢复 / cron / 无头模式(-p); 会话标题(首轮后异步生成 + /title 手动, 落顶层 title 键, /resume 列表优先展示); 
 eval/main.py      评测:eval/cases.jsonl 用例 → 临时目录跑 agent → 断言判分
 core/
   loop.py         ★ agent loop:聚合 → 派发工具 → 回填 → 循环(约110行)
   model.py        模型薄封装:裸 httpx 直调 /v1/messages + 手解 SSE(不引 anthropic SDK——导入重, Windows 冷启动 6s→0.4s; 流式转发/非流式补全(压缩用)不变)
   tools.py        Tool 统一形态 + 五内置工具(ls/read_file/write_file/edit_file/execute)
   goal.py         goal 模式:续跑投影 prompt + update_goal 工具(状态真身在 tui)
-  subagent.py     task 子代理(递归在构造处掐死)
+  subcore/agent.py     task 子代理(递归在构造处掐死)
   summarize.py    上下文压缩(改写式, 80k 触发, 保尾 20 条)
   sessions.py     会话持久化:Anthropic 原生 dict 直接 JSON 落盘
   mcp.py          MCP 工具加载(单次连接即用即走)
@@ -53,7 +53,7 @@ develop 分支的独立工作目录在 `/data01/tsn/code/tsn_files/zany-agent-de
 **feishu gateway（gateway/ 目录 + docs/feishu-integration.md）只在 develop 实现，master 不加这些功能**（用户 2026-10-31 定）。
 
 分支文件归属（2026-11-06 develop 重建后定，防两分支漂移）：
-- 共享核心（core/ tui.py agent.py eval/ tests/ pyproject.toml docs/architecture.md）
+- 共享核心（core/ core/tui.py core/agent.py eval/ tests/ pyproject.toml docs/architecture.md）
   **只在 master 改**，develop 靠 merge 拿 —— 在 develop checkout 里改共享文件 = 错误方向；
 - develop 独有（gateway/ core/plugins/ docker/ docs/feishu-integration.md
   docs/codex-backend.md docs/multi-agent.md install_browser.sh .dockerignore）master 不收，
@@ -66,10 +66,10 @@ develop 分支的独立工作目录在 `/data01/tsn/code/tsn_files/zany-agent-de
 常用命令：
 
 ```bash
-uv run tui.py              # TUI
-uv run tui.py -p "..."     # 无头单次
+uv run core/tui.py              # TUI
+uv run core/tui.py -p "..."     # 无头单次
 uv run eval/main.py [name]      # 评测(用例在 eval/cases.jsonl)
-bash deploy.sh             # 一键部署(fresh clone → uv/依赖/浏览器内核/全局 zany 命令), 见 docs/deploy.md; Windows 用 deploy.cmd(Git Bash 跑 deploy.sh 也会自动转过去)
+bash core/deploy/deploy.sh             # 一键部署(fresh clone → uv/依赖/浏览器内核/全局 zany 命令), 见 docs/deploy.md; Windows 用 core/deploy/deploy.cmd(Git Bash 跑 deploy.sh 也会自动转过去)
 bash release/build.sh      # 构建当前平台 frozen 二进制 → release/dist/zany-<target>(无参=自动平台)
 bash release/install.sh    # 把构建出的二进制装进系统 PATH(zany 命令, 覆盖源码版)
 ```
@@ -84,9 +84,9 @@ bash release/install.sh    # 把构建出的二进制装进系统 PATH(zany 命�
 
 | 借了什么 | 它在哪 | 我们在哪 |
 |---|---|---|
-| 能力面：五文件工具 + execute + task + skills + 压缩 | `middleware/filesystem.py` 等 | `core/tools.py`、`core/subagent.py`、`core/skills.py` |
+| 能力面：五文件工具 + execute + task + skills + 压缩 | `middleware/filesystem.py` 等 | `core/tools.py`、`core/subcore/agent.py`、`core/skills.py` |
 | edit_file 核心语义：count + 唯一性校验 + replace | `backends/filesystem.py:521` | `core/tools.py` `_edit` 精确分支 |
-| task 子代理语义：子代理无 task、只回传结论 | `middleware/subagents.py` | `core/subagent.py` |
+| task 子代理语义：子代理无 task、只回传结论 | `middleware/subagents.py` | `core/subcore/agent.py` |
 | skills 渐进披露：清单常驻、SKILL.md 按需读 | `middleware/` skills 部分 | `core/skills.py` |
 | 反面参照：压缩用非破坏 offload(依赖 checkpointer) | `libs/deepagents/.../summarize` | 我们选**改写式**(`core/summarize.py`)，因 ~/.zany/sessions/*.json 直接覆盖写无 checkpointer |
 
@@ -99,10 +99,10 @@ bash release/install.sh    # 把构建出的二进制装进系统 PATH(zany 命�
 
 | 借了什么 | 它在哪 | 我们在哪 |
 |---|---|---|
-| "一处装配"的成品组装方式(它 `agent.py:3605` create_deep_agent) | `libs/code/deepagents_code/agent.py` | `agent.py` 的 `build_agent()` |
-| 成品功能面：TUI + 会话恢复 + 模型配置 + task/skill/mcp | `tui/` `sessions.py` `model_config.py` | `tui.py`、`core/sessions.py`、`.env` |
-| markdown 渲染策略：流式期间就用 Textual MarkdownStream 增量写(0.1s 节流)+结束后整段重渲(绕 textual#6518) | `tui/widgets/messages.py:1436` AssistantMessage | 我们取折中：live 粗排纯文本(`_turn_renderable(md=False)`) + 定稿 rich Markdown 渲染(`tui.py:130`) |
-| 对照坑：textual 8.x RichLog.write 的 scroll_end(immediate=False) 与 virtual_size reflow 竞态，新内容常沉在视口下 —— ChatLog.write 覆盖后补 scroll_end(immediate=True) 兕底 | textual `_rich_log.py:282` | `tui.py` ChatLog 覆盖 write；.env SHOW_THINKING(默认关)控制 thinking 是否上屏，数据层始终全量记录 |
+| "一处装配"的成品组装方式(它 `core/agent.py:3605` create_deep_agent) | `libs/code/deepagents_code/core/agent.py` | `core/agent.py` 的 `build_agent()` |
+| 成品功能面：TUI + 会话恢复 + 模型配置 + task/skill/mcp | `tui/` `sessions.py` `model_config.py` | `core/tui.py`、`core/sessions.py`、`.env` |
+| markdown 渲染策略：流式期间就用 Textual MarkdownStream 增量写(0.1s 节流)+结束后整段重渲(绕 textual#6518) | `tui/widgets/messages.py:1436` AssistantMessage | 我们取折中：live 粗排纯文本(`_turn_renderable(md=False)`) + 定稿 rich Markdown 渲染(`core/tui.py:130`) |
+| 对照坑：textual 8.x RichLog.write 的 scroll_end(immediate=False) 与 virtual_size reflow 竞态，新内容常沉在视口下 —— ChatLog.write 覆盖后补 scroll_end(immediate=True) 兕底 | textual `_rich_log.py:282` | `core/tui.py` ChatLog 覆盖 write；.env SHOW_THINKING(默认关)控制 thinking 是否上屏，数据层始终全量记录 |
 
 ### 2.3 pi（工具与评测的直接借鉴源）
 

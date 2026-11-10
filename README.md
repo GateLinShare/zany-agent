@@ -36,7 +36,7 @@ zany             # 会话/记忆在 ~/.zany/, 跨项目共用
 **源码部署**（仓库 checkout，走 uv 管理 Python 环境）：
 
 ```bash
-bash deploy.sh   # 一键部署: uv + 依赖 + 全局命令 zany(无浏览器模块, 自动跳过内核)
+bash core/deploy/deploy.sh   # 一键部署: uv + 依赖 + 全局命令 zany(无浏览器模块, 自动跳过内核)
 ```
 
 部署后任意目录 `zany` 即启动（cwd 就是 agent 工作目录）：
@@ -62,8 +62,8 @@ bash npm/release.sh main          # 发布主包
 ### 开发模式（不装全局命令，仓库内直接跑）
 
 ```bash
-uv run tui.py              # TUI
-uv run tui.py -p "..."     # 无头单次
+uv run core/tui.py              # TUI
+uv run core/tui.py -p "..."     # 无头单次
 uv run eval/main.py [name] # 评测（用例在 eval/cases.jsonl）
 ```
 
@@ -76,7 +76,7 @@ uv run eval/main.py [name] # 评测（用例在 eval/cases.jsonl）
 - **飞书 gateway**（`gateway/`）：飞书 bot 私聊 / 群 @ 远程控制编码，WebSocket 长连接收事件 + cron 定时任务，见 [docs/feishu-integration.md](docs/feishu-integration.md)
 - **容器化部署**（`docker/`）：两层镜像（zany-base / zany-gateway）+ docker-compose，gateway 可跑容器
 
-跑 `bash deploy.sh` 完成部署（uv + 依赖 + 浏览器内核），全局命令为 **zany-dev**（与 master 的 zany 并存，互不覆盖）。
+跑 `bash core/deploy/deploy.sh` 完成部署（uv + 依赖 + 浏览器内核），全局命令为 **zany-dev**（与 master 的 zany 并存，互不覆盖）。
 
 ### 浏览器包手动下载
 
@@ -86,7 +86,7 @@ uv run eval/main.py [name] # 评测（用例在 eval/cases.jsonl）
 mkdir -p assets
 curl -L -o assets/chrome-headless-shell-linux64.zip \
   https://storage.googleapis.com/chrome-for-testing-public/154.0.8037.0/linux64/chrome-headless-shell-linux64.zip
-bash deploy.sh    # 解压到 .pw-browsers/ + uv sync + headless 自检
+bash core/deploy/deploy.sh    # 解压到 .pw-browsers/ + uv sync + headless 自检
 ```
 
 ## License

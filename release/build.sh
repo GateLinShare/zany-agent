@@ -28,6 +28,6 @@ uv run pyinstaller --onefile --name zany \
   --collect-all textual --collect-all croniter \
   --add-data "styles${SEP}styles" --add-data "skills${SEP}skills" \
   --add-data "env.example${SEP}." \
-  tui.py
+  core/tui.py
 mv "$DIST/zany$EXE" "$DIST/zany-$TARGET$EXE"
 echo "built $DIST/zany-$TARGET$EXE (v$VERSION)"

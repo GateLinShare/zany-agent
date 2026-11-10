@@ -10,9 +10,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from rich.console import Console
 
-import tui
+from core import tui
 from core.sessions import load_session_data, project_dir
-from tui import Editor, Term, ZanyTui
+from core.tui import Editor, Term, ZanyTui
 
 
 class FakeAgent:

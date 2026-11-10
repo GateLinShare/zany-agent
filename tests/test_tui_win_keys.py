@@ -14,7 +14,7 @@ import sys
 import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from tui import Term
+from core.tui import Term
 
 
 def _key(pend: str) -> str:

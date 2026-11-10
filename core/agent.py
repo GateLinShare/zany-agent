@@ -14,8 +14,8 @@
 本文件只负责组装: .env 加载 + SYSTEM_PROMPT + build_agent(workdir)。
 入口在 tui.py:
 
-    uv run tui.py            # interactive TUI
-    uv run tui.py -p "问题"  # headless single shot
+    uv run core/tui.py            # interactive TUI
+    uv run core/tui.py -p "问题"  # headless single shot
 """
 
 import os
