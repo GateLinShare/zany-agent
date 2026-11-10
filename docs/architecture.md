@@ -24,7 +24,8 @@ core/
   frozen.py       frozen(PyInstaller)路径收口:只读资源 app_root() / 可写数据 data_dir()(~/.zany)
   messages.py     消息块辅助(text_of / tool_uses / est_tokens)
   deploy/         源码一键部署:deploy.sh / deploy.cmd(uv + 依赖 + 全局命令)
-eval/             评测:main.py + cases.jsonl(用例 → 临时目录跑 agent → 断言判分)
+eval/             评测四层:main.py+cases.jsonl(硬断言回归)、deepeval/(GEval 质量分)、
+                  terminal-bench/(Stanford 86 题公开榜)、skill-loop/(进化闭环);总架构 docs/self-improvement.md
 release/          构建/发布统一目录:build.sh(构建当前平台)、install.sh(装系统 PATH)、dist 产物、npm 包源(npm/main)
 .github/workflows/  build-test.yml(手动触发构建验证)/ release.yml(frozen + npm 发版)
 ```
@@ -355,6 +356,19 @@ cat prompt.txt | uv run core/tui.py -p    # prompt 走 stdin
 无头模式单次 invoke、不起 UI、不挂 cron,支持 Ctrl+C 两段式打断;工单 watcher 等
 后台调用走这条路径,下一轮把 stderr 里的 session id 传回 `-r` 即可多轮续聊。
 评测同走此路径:`eval/main.py` 读 `eval/cases.jsonl` 在临时目录跑 agent 断言判分。
+
+### 9.1 评测体系(eval/ 四层)
+
+| 层 | 判分 | 入口 |
+|---|---|---|
+| L1 功能回归 | JSONL 用例(seed+query+checks)→ 临时目录跑 agent → 硬断言 0/1(answer_contains/file_exists/file_contains/max_steps) | `eval/main.py` |
+| L2 回答质量 | deepeval GEval 0~1 分+理由,judge 用项目自带 ChatModel(零新增配置);只接硬断言够不着的开放性任务 | `eval/deepeval/`(README 有硬约定 4 条) |
+| L2' 能力榜对标 | Stanford Terminal-Bench 86 题,容器内真实终端任务可执行脚本判分;setup.sh(数据集+harness+base 镜像本地重建)/run.sh 分离,oracle 先验判分链路 | `eval/terminal-bench/` |
+| L3 进化闭环 | 评测对象=整个 zany(一个 git commit);git 即快照:接受=commit、被拒=checkout -- .,分数严格提升才保留 | `eval/skill-loop/`(编排全在 3 个 SKILL.md,零运行时代码) |
+
+判分方式的选型依据(三家族+分水岭结论)见 `docs/agent-benchmarks.md`;
+进化循环完整架构见 `docs/self-improvement.md`;Terminal-Bench 环境配方与
+已知限制见 `eval/terminal-bench/README.md`。task 子代理是 L2/L3 评测矩阵的执行器。
 
 ## 10. 能力插件(core/plugins/,master 基座)
 
