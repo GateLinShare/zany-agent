@@ -32,7 +32,7 @@ class ZanyBackend:
 
     def run_turn(self, chat_id: str, text: str, fresh: bool) -> str:
         # 函数内 import: codex backend 不该为加载 zany 组装(agent.py 载 .env/拼 prompt)买单
-        from agent import build_agent
+        from core.agent import build_agent
         from core.messages import user
         from core.sessions import load_session_data, save_session
         from gateway.channels.feishu import session_path

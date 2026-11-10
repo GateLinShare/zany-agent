@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # 项目根进 path(直接跑本文件)
 
-import agent  # noqa: E402  先 import: 顺带把项目 .env 载入环境(agent.py 的加载逻辑)
+from core import agent  # noqa: E402  先 import: 顺带把项目 .env 载入环境(agent.py 的加载逻辑)
 
 from gateway.cron import CronStore, start_tick
 from gateway.router import GatewayRouter

@@ -35,7 +35,7 @@ def make_restart_tool() -> Tool:
             return "重启已排定: 本轮收尾后 gateway 进程重起, 飞书短暂断开后自动重连"
         if not argv or argv[0] in ("--resume", "-r"):
             argv = [*argv, "-r"]  # TUI: 自动接最近会话, 重启后对话续上
-        _pending_restart = [sys.executable, str(root / "tui.py"), *argv]
+        _pending_restart = [sys.executable, str(root / "core" / "tui.py"), *argv]
         return "重启已排定: 本轮收尾后进程重起, 新代码生效(本轮照常完成)"
 
     return Tool(
