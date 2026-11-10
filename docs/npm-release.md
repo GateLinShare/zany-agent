@@ -2,7 +2,7 @@
 
 分发形态: PyInstaller onefile 二进制 + npm 平台分包(codex/esbuild 模式)。
 包名: 主包 `zany-agent`, 平台包 `zany-agent-{linux-x64,darwin-arm64}`。
-版本单源: pyproject.toml 的 version(npm 侧由 npm/release.sh 同步写回)。
+版本单源: pyproject.toml 的 version(npm 侧由 release workflow 的 npm version 写回)。
 
 ## 发版流程
 1. 改 pyproject.toml version → master 提交
