@@ -10,7 +10,7 @@
 ```
 agent.py          组装层:.env + SYSTEM_PROMPT + build_agent(workdir)
 tui.py            UI 层:claude 式 TUI(烙定区 print 进原生滚动 + 底部活动区整帧重绘, 只用 CUU/ED/CHA)/ 会话恢复 / cron / 无头模式(-p); 会话标题(首轮后异步生成 + /title 手动, 落顶层 title 键, /resume 列表优先展示); 旧 Textual 全屏版在 legacy/tui_textual.py(2026-11-09 tui2 转正)
-eval/main.py      评测:evals/cases.jsonl 用例 → 临时目录跑 agent → 断言判分
+eval/main.py      评测:eval/cases.jsonl 用例 → 临时目录跑 agent → 断言判分
 core/
   loop.py         ★ agent loop:聚合 → 派发工具 → 回填 → 循环(约110行)
   model.py        模型薄封装:裸 httpx 直调 /v1/messages + 手解 SSE(不引 anthropic SDK——导入重, Windows 冷启动 6s→0.4s; 流式转发/非流式补全(压缩用)不变)
@@ -68,7 +68,7 @@ develop 分支的独立工作目录在 `/data01/tsn/code/tsn_files/zany-agent-de
 ```bash
 uv run tui.py              # TUI
 uv run tui.py -p "..."     # 无头单次
-uv run eval/main.py [name]      # 评测(用例在 evals/cases.jsonl)
+uv run eval/main.py [name]      # 评测(用例在 eval/cases.jsonl)
 bash deploy.sh             # 一键部署(fresh clone → uv/依赖/浏览器内核/全局 zany 命令), 见 docs/deploy.md; Windows 用 deploy.cmd(Git Bash 跑 deploy.sh 也会自动转过去)
 bash release/build.sh      # 构建当前平台 frozen 二进制 → release/dist/zany-<target>(无参=自动平台)
 bash release/install.sh    # 把构建出的二进制装进系统 PATH(zany 命令, 覆盖源码版)
@@ -115,7 +115,7 @@ bash release/install.sh    # 把构建出的二进制装进系统 PATH(zany 命�
 | **edit 批量编辑**：edits[] 全部对原文定位、按位置排序、重叠检测、逆序套用 | `coding-agent/src/core/tools/edit-diff.ts` | `core/tools.py` `_edit` 精确分支 |
 | **edit 模糊匹配兜底**：NFKC/智能引号/破折号/行尾空白归一化重试；命中后只回写覆盖到的行，未动行保留原字节 | 同上 `normalizeForFuzzyMatch` / `applyReplacementsPreservingUnchangedLines` | `core/tools.py` `_fuzzy` / `_overlay` |
 | 极简内核哲学：内置工具极少，其余外置(它 8 个内置+extension，我们 5 个内置+MCP/skills/task) | `packages/coding-agent/src/core/tools/` | 整体设计取向 |
-| 评测风格：JSONL 用例(seed/query/checks) → 判分 | `packages/evals/` | `eval/main.py` + `evals/cases.jsonl` |
+| 评测风格：JSONL 用例(seed/query/checks) → 判分 | `packages/evals/` | `eval/main.py` + `eval/cases.jsonl` |
 | markdown 渲染：pi-tui 自研 Markdown 组件(marked+highlight.js→ANSI)，每 delta 全量重渲、未闭合 fence 裁剪防闪烁 | `packages/tui/src/components/markdown.ts:236` | 对照参考：若流式也要渲染，先看 dcode 的 MarkdownStream 节流方案 |
 
 ### 2.4 PenguinHarness（平台型参照，非代码借鉴）

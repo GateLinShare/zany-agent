@@ -1,7 +1,7 @@
 """源码运行 vs PyInstaller 冻结运行的双形态路径解析, 三处收口:
 
 - agent.py   .env 位置 + styles 资源根
-- cron_jobs.py cron_jobs.json 落点
+- core/cron_jobs.py: 数据 cron_jobs.json 落点
 - core/skills.py 内置 skills 资源根
 
 约定: 只读资源(打进包的 styles/skills/env.example)看 app_root();

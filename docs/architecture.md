@@ -9,8 +9,8 @@
 ```
 agent.py          组装层:.env + SYSTEM_PROMPT + 风格包(prompt_packs) + build_agent(workdir)
 tui.py            UI 层:claude 式 TUI(2026-11-09 tui2 转正; 旧 Textual 全屏版留档 legacy/tui_textual.py)/ 会话恢复 / cron / 无头模式(-p)
-cron_jobs.py      cron 定时任务:调度线程只入队,主循环消费后当普通输入跑一轮
-eval/main.py      评测:evals/cases.jsonl 用例 → 临时目录跑 agent → 断言判分
+core/cron_jobs.py cron 定时任务:调度线程只入队,主循环消费后当普通输入跑一轮
+eval/main.py      评测:eval/cases.jsonl 用例 → 临时目录跑 agent → 断言判分
 core/
   loop.py         ★ agent loop:流式聚合 → 派发工具 → 回填 → 循环(约 320 行)
   model.py        模型薄封装:裸 httpx 直调 /v1/messages + 手解 SSE(不引 anthropic SDK——导入重, Windows 冷启动 6s→0.4s); 流式转发/非流式补全(压缩用)
@@ -352,7 +352,7 @@ cat prompt.txt | uv run tui.py -p    # prompt 走 stdin
 
 无头模式单次 invoke、不起 UI、不挂 cron,支持 Ctrl+C 两段式打断;工单 watcher 等
 后台调用走这条路径,下一轮把 stderr 里的 session id 传回 `-r` 即可多轮续聊。
-评测同走此路径:`eval/main.py` 读 `evals/cases.jsonl` 在临时目录跑 agent 断言判分。
+评测同走此路径:`eval/main.py` 读 `eval/cases.jsonl` 在临时目录跑 agent 断言判分。
 
 ## 10. 能力插件(core/plugins/,master 基座)
 
