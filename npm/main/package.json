@@ -1,15 +1,12 @@
 {
-  "name": "zany-agent",
+  "name": "@gatelinshare/zany-agent",
   "version": "0.1.0",
   "description": "zany coding agent: TUI + headless coding agent (PyInstaller binaries via npm)",
   "license": "Apache-2.0",
   "repository": { "type": "git", "url": "git+https://github.com/GateLinShare/zany-agent.git" },
   "bin": { "zany": "bin/zany.js" },
-  "files": ["bin/", "env.example", "README.md"],
-  "optionalDependencies": {
-    "zany-agent-linux-x64": "0.1.0",
-    "zany-agent-darwin-arm64": "0.1.0",
-    "zany-agent-win32-x64": "0.1.0"
-  },
+  "files": ["bin/", "install.js", "env.example", "README.md"],
+  "scripts": { "postinstall": "node install.js" },
+  "publishConfig": { "registry": "https://npm.pkg.github.com" },
   "engines": { "node": ">=16" }
 }

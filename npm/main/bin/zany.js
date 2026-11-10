@@ -1,16 +1,16 @@
 #!/usr/bin/env node
-// zany 启动器: 选平台二进制 spawn, stdio 直通, 退出码透传。零依赖 CommonJS。
+// zany 启动器: 启动 postinstall 下载到本包 bin/ 下的平台二进制。
 const { spawn } = require("child_process");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
 const suffix = process.platform === "win32" ? ".exe" : "";
-let bin;
-try {
-  bin = require.resolve(`zany-agent-${process.platform}-${process.arch}/bin/zany${suffix}`);
-} catch {
-  console.error(`zany-agent: 平台包缺失 (${process.platform}-${process.arch} 不在支持列表: linux-x64 / darwin-arm64 / win32-x64)`);
+const target = `${process.platform}-${process.arch}`;
+const bin = path.join(__dirname, `zany-${target}${suffix}`);
+if (!fs.existsSync(bin)) {
+  console.error(`zany-agent: 平台二进制不存在: ${target}`);
+  console.error("请重新执行 npm install，或检查 GitHub Releases 是否存在对应版本的二进制附件。");
   process.exit(1);
 }
 

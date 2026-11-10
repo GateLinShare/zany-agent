@@ -45,9 +45,16 @@ if ENV_PATH.is_file():
         if line and not line.startswith("#") and "=" in line:
             key, _, value = line.partition("=")
             os.environ.setdefault(key.strip(), value.strip())
-elif not IS_FROZEN:
+elif IS_FROZEN:
+    # 直接运行 dist/zany 时也与 deploy.sh 保持一致：首次运行自动播种配置模板。
+    template = app_root() / "env.example"
+    if template.is_file():
+        ENV_PATH.parent.mkdir(parents=True, exist_ok=True)
+        ENV_PATH.write_text(template.read_text(encoding="utf-8"), encoding="utf-8")
+        raise SystemExit(f"已创建 {ENV_PATH}，请填写 ANTHROPIC_BASE_URL、ANTHROPIC_API_KEY、ANTHROPIC_MODEL 后重新运行")
+    raise SystemExit(f"缺少配置文件 {ENV_PATH}，且二进制未携带 env.example")
+else:
     raise FileNotFoundError(f"缺 {ENV_PATH}: cp env.example .env 后填密钥")
-# frozen 无 .env 不崩: 环境变量可能外部已给, 缺密钥会在 model.py 明确报
 
 from core.loop import Agent, user_memory_path
 from core.mcp import load_mcp_tools

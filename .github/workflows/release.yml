@@ -1,31 +1,76 @@
 name: release
+
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "version, must equal pyproject.toml"
+        description: "版本号，必须与 pyproject.toml 的 project.version 一致"
         required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
 jobs:
   platform:
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-22.04, target: linux-x64 }   # glibc 2.35 下限
-          - { os: macos-14, target: darwin-arm64 }
-          - { os: windows-2022, target: win32-x64 }
+          - { os: ubuntu-22.04, target: linux-x64, exe: "" }
+          - { os: macos-14, target: darwin-arm64, exe: "" }
+          - { os: windows-2022, target: win32-x64, exe: ".exe" }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+      - name: Check version
+        shell: bash
+        run: |
+          test "$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')" = "${{ inputs.version }}"
       - run: uv sync
-      - run: npm config set //registry.npmjs.org/:_authToken=$NPM_TOKEN
-        env: { NPM_TOKEN: "${{ secrets.NPM_TOKEN }}" }
-      - run: bash npm/release.sh ${{ matrix.target }}
-  main:
-    needs: platform   # 主包 optionalDependencies 引用的平台包必须先存在
+      - name: Build PyInstaller binary
+        shell: bash
+        run: |
+          uv run pyinstaller --onefile --name zany \
+            --collect-all textual --collect-all croniter \
+            --add-data "styles${{ matrix.target == 'win32-x64' && ';' || ':' }}styles" \
+            --add-data "skills${{ matrix.target == 'win32-x64' && ';' || ':' }}skills" \
+            --add-data "env.example${{ matrix.target == 'win32-x64' && ';' || ':' }}." \
+            tui.py
+          cp "dist/zany${{ matrix.exe }}" "dist/zany-${{ matrix.target }}${{ matrix.exe }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zany-${{ matrix.target }}
+          path: dist/zany-${{ matrix.target }}${{ matrix.exe }}
+
+  release-and-npm:
+    needs: platform
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: npm config set //registry.npmjs.org/:_authToken=$NPM_TOKEN
-        env: { NPM_TOKEN: "${{ secrets.NPM_TOKEN }}" }
-      - run: bash npm/release.sh main
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: zany-*
+          path: release-assets
+          merge-multiple: true
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}
+          name: zany-agent v${{ inputs.version }}
+          generate_release_notes: true
+          files: release-assets/*
+      - name: Set npm package version
+        working-directory: npm/main
+        run: npm version "${{ inputs.version }}" --no-git-tag-version --allow-same-version
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://npm.pkg.github.com
+      - name: Publish npm installer to GitHub Packages
+        working-directory: npm/main
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
