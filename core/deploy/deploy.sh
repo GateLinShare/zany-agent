@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# 非 bash 调用(sh/dash)转交 bash 重跑: 本脚本用 pipefail 等 bash 语法
+[ -n "$BASH_VERSION" ] || exec bash "$0" "$@"
 # zany 一键部署(非 docker): uv(缺则装) + uv sync + 浏览器内核 + 全局命令 zany
 # 用法: bash deploy.sh   (在 fresh clone 上即可跑, python/依赖均由 uv 管理)
 set -euo pipefail

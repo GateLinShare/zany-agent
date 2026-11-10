@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# 非 bash 调用(sh/dash)转交 bash 重跑: 本脚本用 pipefail 等 bash 语法
+[ -n "$BASH_VERSION" ] || exec bash "$0" "$@"
 # 把构建好的二进制装进系统 PATH(zany 命令)。会覆盖 deploy.sh 装的源码版 zany。
 # 用法: release/install.sh [二进制路径]   无参 = 自动按当前平台找 release/dist/zany-<target>
 set -euo pipefail
