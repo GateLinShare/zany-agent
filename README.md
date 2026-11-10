@@ -1,98 +1,98 @@
 # zany-agent
 
-极简 code agent：内置 `ls` / `read_file` / `write_file` / `edit_file` / `execute` 五个基础工具 + `task` 子任务派发（子代理独立跑，只回传结论），skills 渐进披露与 MCP 工具按需外挂，不占内核。内核参考 pi，TUI 观感对标 Claude Code。相较 Claude Code：零重依赖响应快，项目记忆（AGENTS.md）与个人记忆（USER.md）每轮对话动态载入——长对话上下文压缩后记忆依然完整生效。架构全量文档见 [docs/architecture.md](docs/architecture.md)。
+[中文](README-ZH.md)
 
-## 项目特点：双层记忆不遗忘
+A minimal coding agent: five built-in tools (`ls` / `read_file` / `write_file` / `edit_file` / `execute`) plus `task` subagent dispatch, with skills and MCP tools loaded on demand. Kernel inspired by pi, TUI modeled after Claude Code, faster conversation output; project memory (AGENTS.md) and personal memory (USER.md) are loaded every turn — memory stays intact after context compression. Full architecture doc: [docs/architecture.md](docs/architecture.md).
 
-- **项目记忆 `AGENTS.md`**——架构/约定/规范随仓库走，每轮开工自动全文载入
-- **个人记忆 `~/.zany/USER.md`**（路径可用 `ZANY_USER_MEMORY` 改）——协作偏好、被纠正过的决策，逐条带日期累积，同样每轮自动载入
+## The master branch: minimal kernel
 
-新会话、恢复旧会话、隔多天继续，agent 都带着完整上下文开工；改记忆文件即时生效，无需重启。
+Exactly 6 built-in tools: 5 basic operations (`ls`, `read_file`, `write_file`, `edit_file`, `execute`) + 1 `task` subagent (returns conclusions only, no recursive spawning). Everything else is optional and stays out of the kernel:
+- Skills with progressive disclosure (manifest always in context, SKILL.md read on demand)
+- MCP tools (connect once, use and discard)
 
-## master 分支：极简内核
+### Install & Run
 
-内置工具只有 6 个：5 个基础操作（`ls`、`read_file`、`write_file`、`edit_file`、`execute`）+ 1 个 `task` 子代理（只回传结论，不递归派生）。其余能力按需外挂，不占内核：
-- skills 渐进披露（清单常驻，SKILL.md 按需读）
-- MCP 工具（单次连接即用即走）
-
-### 安装与启动
-
-**方式一：源码部署**（仓库 checkout，走 uv 管理 Python 环境）：
+**Option 1: from source** (repo checkout, Python env managed by uv):
 
 ```bash
-uv run core/tui.py             # 零部署直接跑
-uv run core/tui.py -p "..."    # 无头单次
+uv run core/tui.py             # run directly, zero setup
+uv run core/tui.py -p "..."    # headless single run
 
-bash core/deploy/deploy.sh     # 一键部署: uv + 依赖 + 全局命令 zany（无浏览器模块自动跳过内核；sh 调用也兼容）
+bash core/deploy/deploy.sh     # one-shot deploy: uv + deps + global `zany` command (skips browser kernel automatically when absent; works when invoked via sh too)
 ```
 
-Windows PowerShell：
+Windows PowerShell:
 
 ```powershell
-.\core\deploy\deploy.cmd       # 同 deploy.sh，Windows 用 .cmd
+.\core\deploy\deploy.cmd       # same as deploy.sh, use .cmd on Windows
 ```
 
-部署后任意目录 `zany` 即启动（cwd 就是 agent 工作目录）：
+After deploy, run `zany` from any directory (cwd is the agent's working directory):
 
 ```bash
 zany             # TUI
-zany -p "..."    # 无头单次
+zany -p "..."    # headless single run
 ```
 
-**方式二：frozen 二进制（本地构建，零 Python 依赖）**：
+**Option 2: frozen binary (local build, zero Python deps)**:
 
 ```bash
-bash release/build.sh        # 按当前平台构建单文件二进制 → release/dist/zany-<target>（可传 target 跨平台命名）
-bash release/install.sh      # 装进系统 PATH（zany 命令，自动移除已装的源码版）
+bash release/build.sh        # build single-file binary for current platform → release/dist/zany-<target> (pass a target to build cross-platform)
+bash release/install.sh      # install into system PATH (zany command, removes any source-installed version)
 ```
 
-Windows PowerShell 用同名 .ps1（.sh 在 PS 里不执行）：
+On Windows PowerShell use the .ps1 twins (.sh won't run in PS):
 
 ```powershell
-.\release\build.ps1     # 构建 → release\dist\zany-win32-x64.exe
-.\release\install.ps1   # 装进 ~\.local\bin\zany.exe
+.\release\build.ps1     # build → release\dist\zany-win32-x64.exe
+.\release\install.ps1   # install to ~\.local\bin\zany.exe
 ```
 
-首跑自动生成 `~/.zany/.env`，填入 `ANTHROPIC_API_KEY` 后在任意目录：
+First run auto-generates `~/.zany/.env`; fill in `ANTHROPIC_API_KEY`, then from any directory:
 
 ```bash
 zany             # TUI
-cd 项目目录 && zany -p "..."    # 无头单次(cwd 就是 agent 工作目录)
-zany             # 会话/记忆在 ~/.zany/, 跨项目共用
+cd project-dir && zany -p "..."    # headless single run (cwd is the agent's working directory)
+zany             # sessions/memory live in ~/.zany/, shared across projects
 ```
 
-可选：MCP 服务器配置 `~/.zany/mcp_servers.json`（需目标机自装 uv）。
+Optional: MCP server config at `~/.zany/mcp_servers.json` (uv must be installed on the target machine).
 
-> 两种部署写同一个 `zany` 命令位，重装一种会自动移除另一种；会话/记忆都在 `~/.zany/`，互换不丢数据。develop 分支部署装的是 `zany-dev`，与 master 的 zany 并存。
+> Both deploy methods write the same `zany` command slot; reinstalling one removes the other. Sessions/memory live in `~/.zany/`, so switching loses nothing. The develop branch deploys as `zany-dev`, coexisting with master's `zany`.
 
-### 构建 npm 包（维护者）
+### Building npm packages (maintainers)
 
-PyInstaller onefile 二进制 + npm 平台分包（codex 同款），版本单源 pyproject.toml：
+PyInstaller onefile binary + npm per-platform packages (codex-style), single version source in pyproject.toml:
 
-正式发版走 GitHub Actions（workflow_dispatch），流程见 [docs/npm-release.md](docs/npm-release.md)。
+Official releases go through GitHub Actions (workflow_dispatch), see [docs/npm-release.md](docs/npm-release.md).
 
-## develop 分支：在 master 之上增加
+## The develop branch: master plus
 
-工具与运行形态：
+Tools and runtime modes:
 
-- **浏览器工具**（`core/browser.py`）：agent 可直接驱动的本地无头浏览器（navigate/click/type）
-- **peer 多实例协作**（`core/peers.py`）：`tui.py --serve` 起常驻服务，跨机派任务/查进度/换码重启（A2A 语义）
-- **飞书 gateway**（`gateway/`）：飞书 bot 私聊 / 群 @ 远程控制编码，WebSocket 长连接收事件 + cron 定时任务，见 [docs/feishu-integration.md](docs/feishu-integration.md)
-- **容器化部署**（`docker/`）：两层镜像（zany-base / zany-gateway）+ docker-compose，gateway 可跑容器
+- **Browser tool** (`core/browser.py`): a local headless browser the agent drives directly (navigate/click/type)
+- **Peer multi-instance collaboration** (`core/peers.py`): `tui.py --serve` starts a resident service for cross-machine task dispatch / progress checks / code-swap restart (A2A semantics)
+- **Feishu gateway** (`gateway/`): Feishu bot DM / group @ remote coding control, WebSocket long connection + cron jobs, see [docs/feishu-integration.md](docs/feishu-integration.md)
+- **Containerized deployment** (`docker/`): two-layer images (zany-base / zany-gateway) + docker-compose, gateway runs in a container
 
-跑 `bash core/deploy/deploy.sh` 完成部署（uv + 依赖 + 浏览器内核），全局命令为 **zany-dev**（与 master 的 zany 并存，互不覆盖）。
+Run `bash core/deploy/deploy.sh` to deploy (uv + deps + browser kernel); the global command is **zany-dev** (coexists with master's `zany`, no clobbering).
 
-### 浏览器包手动下载
+### Manual browser download
 
-`assets/chrome-headless-shell-linux64.zip`（115MB）超 GitHub 100MB 限制不入库，部署前手动下载，放到仓库根 `assets/` 下再跑部署脚本：
+`assets/chrome-headless-shell-linux64.zip` (115MB) exceeds GitHub's 100MB limit and is not in the repo. Download it manually into `assets/` before deploying:
 
 ```bash
 mkdir -p assets
 curl -L -o assets/chrome-headless-shell-linux64.zip \
   https://storage.googleapis.com/chrome-for-testing-public/154.0.8037.0/linux64/chrome-headless-shell-linux64.zip
-bash core/deploy/deploy.sh    # 解压到 .pw-browsers/ + uv sync + headless 自检
+bash core/deploy/deploy.sh    # extracts to .pw-browsers/ + uv sync + headless self-check
 ```
 
 ## License
 
 [Apache-2.0](LICENSE)
+
+## Contact
+
+- WeChat: `wxid_22la5az0x9k322` <img src="assets/wechat-qrcode.png" width="180" />
+- Email: [tsnninghao@gmail.com](mailto:tsnninghao@gmail.com) / [tsnninghao@163.com](mailto:tsnninghao@163.com)
