@@ -48,6 +48,15 @@ zany -p "..."    # 无头单次
 
 > npm 版与源码版都读 `~/.zany/` 下的会话与记忆，但装了 deploy.sh 的 `zany` 命令后再 `npm i -g zany-agent` 会撞名，看 PATH 优先级。
 
+### 本地构建二进制（维护者）
+
+PyInstaller onefile 单文件（产物统一在 `release/` 目录）:
+
+```bash
+bash release/build.sh        # 按当前平台构建 → release/dist/zany-<target>（可传 target 跨平台命名）
+bash release/install.sh      # 把二进制装进系统 PATH（zany 命令，覆盖源码版）
+```
+
 ### 构建 npm 包（维护者）
 
 PyInstaller onefile 二进制 + npm 平台分包（codex 同款），版本单源 pyproject.toml：
