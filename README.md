@@ -24,6 +24,13 @@ bash release/build.sh        # 按当前平台构建单文件二进制 → relea
 bash release/install.sh      # 装进系统 PATH（zany 命令，自动移除已装的源码版）
 ```
 
+Windows PowerShell 用同名 .ps1（.sh 在 PS 里不执行）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File release\build.ps1     # 构建 → release\dist\zany-win32-x64.exe
+powershell -ExecutionPolicy Bypass -File release\install.ps1   # 装进 ~\.local\bin\zany.exe
+```
+
 首跑自动生成 `~/.zany/.env`，填入 `ANTHROPIC_API_KEY` 后在任意目录：
 
 ```bash
