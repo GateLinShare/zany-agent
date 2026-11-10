@@ -349,7 +349,10 @@ def _execute_tool(workdir, ledger) -> Tool:
         if live and live[0].poll() is None:
             _killpg(live[0])
 
-    return Tool("execute", f"执行 shell 命令(真实 shell, 用真实路径), 默认超时 {EXEC_TIMEOUT} 秒。",
+    return Tool("execute", f"执行 shell 命令(真实 shell, 用真实路径), 默认超时 {EXEC_TIMEOUT} 秒。\n"
+                "防挂起纪律: 探查类命令(find/ls 结果喂 cat/tail/grep 等无文件参数场景)用 `xargs` 或判空(`f=$(...); [ -n \"$f\" ] && cat \"$f\"`), "
+                "或命令尾部加 `</dev/null`; 可能网络/等待的命令套 `timeout N` 前缀, "
+                "宁可命令失败也别空等——工具超时会 kill 进程组, 但损失掉的是全部等待时间。",
                 {"type": "object", "properties": {
                      "command": {"type": "string"}, "timeout": {"type": "integer"}},
                  "required": ["command"]},
