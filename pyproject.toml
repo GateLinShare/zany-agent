@@ -24,10 +24,10 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project.scripts]
-zany = "tui:main"
+zany = "core.tui:main"
 
 [tool.hatch.build.targets.wheel]
-only-include = ["tui.py", "core"]
+only-include = ["core"]
 
 # 能力插件的重依赖走 extras, 基座默认不装(core/plugins/<name>.py 的 import 失败即降级为工具缺席)
 # UV_PIP_INDEX_URL 只管 uv pip;uv run/lock 解析走这里,否则连 pypi.org 会很慢

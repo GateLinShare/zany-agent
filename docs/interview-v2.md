@@ -4,7 +4,7 @@
 > 一个零 agent 框架的编码 agent:loop、工具、上下文压缩、子代理、评测闭环
 > 全部手写,连模型 SDK 都没要 —— 裸 httpx 直调 /v1/messages。`core/` 目录
 > 约 1500 行纯 Python,第三方依赖只剩 httpx、mcp(协议客户端)、croniter
-> (TUI 已不用 textual,只剩 legacy 版在用)。
+> (TUI 已不用 textual)。
 > 本文按"面试官会追问什么"组织:每个设计给出**为什么这么选、放弃了什么、
 > 什么时候升级**。组件实现细节见 `docs/architecture.md`,本文讲决策与叙事。
 
@@ -27,15 +27,15 @@
 
 ```
 ┌─ 交互层 ────────────────────────────────────┐
-│ tui.py  唯一入口: 无参 = claude 式 TUI;      │
+│ core/tui.py  唯一入口: 无参 = claude 式 TUI;      │
 │         -p = 无头模式(供脚本/后台调用)       │
 ├─ 组装层 ────────────────────────────────────┤
-│ agent.py  .env + SYSTEM_PROMPT + 风格包 +    │
+│ core/agent.py  .env + SYSTEM_PROMPT + 风格包 +    │
 │           build_agent                        │
 ├─ 核心层(全部手写) ─────────────────────────┤
 │ core/loop.py      agent loop + 流式聚合      │
 │ core/tools.py     内置工具 + Tool 统一形态    │
-│ core/subagent.py  task 子代理                 │
+│ core/subcore/agent.py  task 子代理                 │
 │ core/summarize.py 上下文压缩(改写式)         │
 │ core/model.py     模型薄封装(裸 httpx + 手解 SSE)│
 │ core/goal.py      goal 模式(宿主自动续跑)   │
@@ -68,8 +68,8 @@ def build_agent(workdir, with_mcp=True):
 组装层就这几行 —— 因为没有框架要配,组装自然就薄。四个仍然值得讲的取舍:
 
 **① 路径不做重写。** 文件工具与 execute 同一套文件系统视图(pi/hermes 同款):
-绝对路径字面直用,相对路径相对 workdir。曾有 workdir 虚拟根(`/agent.py` 映射到
-`workdir/agent.py`),但逃生口、create 特判、外部新建绕道 execute 这些特例都是它
+绝对路径字面直用,相对路径相对 workdir。曾有 workdir 虚拟根(`/core/agent.py` 映射到
+`workdir/core/agent.py`),但逃生口、create 特判、外部新建绕道 execute 这些特例都是它
 制造的,2026-10-31 移除 —— 两套路径语义的一致性靠"不做"保证,不靠约定补救。
 
 **② system prompt 不入历史。** AGENTS.md 每轮调模型前现读现拼,用完即弃。

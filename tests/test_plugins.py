@@ -55,11 +55,11 @@ def main():
     repo_root = Path(__file__).resolve().parent.parent
     old_argv = sys.argv
     try:
-        sys.argv = [str(repo_root / "tui.py")]
+        sys.argv = [str(repo_root / "core" / "tui.py")]
         av = make_restart_tool().run({}) and None
         import core.plugins.restart as _r
         av = _r.pending_restart()
-        assert av and Path(av[1]) == repo_root / "tui.py", (av, repo_root)
+        assert av and Path(av[1]) == repo_root / "core" / "tui.py", (av, repo_root)
         _r._pending_restart = None
     finally:
         sys.argv = old_argv

@@ -41,7 +41,7 @@ jobs:
             --add-data "styles${{ matrix.target == 'win32-x64' && ';' || ':' }}styles" \
             --add-data "skills${{ matrix.target == 'win32-x64' && ';' || ':' }}skills" \
             --add-data "env.example${{ matrix.target == 'win32-x64' && ';' || ':' }}." \
-            tui.py
+            core/tui.py
           cp "dist/zany${{ matrix.exe }}" "dist/zany-${{ matrix.target }}${{ matrix.exe }}"
       - uses: actions/upload-artifact@v4
         with:

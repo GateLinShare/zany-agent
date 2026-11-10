@@ -62,7 +62,7 @@ cat > "$BIN" <<EOF
 #!/usr/bin/env bash
 # zany coding agent: 以当前目录为工作项目启动(cwd 即 workdir, AGENTS.md/文件工具/execute 全锚定它)
 unset VIRTUAL_ENV  # 残留变量会让 uv run 每次警告
-exec uv run --project $REPO python $REPO/tui.py "\$@"
+exec uv run --project $REPO python $REPO/core/tui.py "\$@"
 EOF
 chmod +x "$BIN"
 echo "[4/4] 全局命令: $BIN"

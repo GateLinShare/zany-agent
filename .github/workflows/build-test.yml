@@ -21,7 +21,7 @@ jobs:
             --collect-all textual --collect-all croniter \
             --add-data "styles${{ matrix.sep }}styles" --add-data "skills${{ matrix.sep }}skills" \
             --add-data "env.example${{ matrix.sep }}." \
-            tui.py
+            core/tui.py
           mkdir -p out
           cp dist/zany${{ matrix.exe }} out/zany-${{ matrix.target }}${{ matrix.exe }}
       - uses: actions/upload-artifact@v4

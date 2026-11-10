@@ -9,7 +9,7 @@ fake.kbhit = lambda: bool(_state["buf"])
 fake.getwch = lambda: _state["buf"].pop(0)
 sys.modules["msvcrt"] = fake
 
-import tui
+from core import tui
 
 t = tui.Term()
 t._is_win = True
