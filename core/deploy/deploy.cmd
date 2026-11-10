@@ -21,15 +21,12 @@ if not exist .env (
   exit /b 1
 )
 
-rem [2/3] 依赖: 有 feishu extra 的分支(develop, gateway 所在)带上它; master 普通 sync
-set "EXTRA="
-findstr /c:"feishu" pyproject.toml >nul 2>nul && set "EXTRA=--extra feishu"
-echo [2/3] uv sync %EXTRA%
-uv sync %EXTRA%
+rem [2/3] 依赖: --all-extras(develop 有 feishu/browser extra, master extras 为空, 两分支同口径)
+uv sync --all-extras
 if errorlevel 1 exit /b 1
 
-rem 浏览器内核: 浏览器属 develop 增量(master 无 core/browser.py, 跳过); 安装脚本走 Git Bash
-if exist core\browser.py (
+rem 浏览器内核: 浏览器属 develop 增量(master 无 core/plugins/browser.py, 跳过); 安装脚本走 Git Bash
+if exist core\plugins\browser.py (
   echo [browser] 本分支有浏览器模块, 内核安装: Git Bash 里跑 bash install_browser.sh
 ) else (
   echo [browser] 本分支无浏览器模块, 跳过内核安装
