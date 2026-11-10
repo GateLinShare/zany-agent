@@ -20,7 +20,7 @@ esac
 TARGET="${1:-$TARGET}"
 EXE=""; SEP=":"
 case "$TARGET" in win32-*) EXE=".exe"; SEP=";" ;; esac
-VERSION=$(python3 -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+VERSION=$(uv run python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
 
 uv sync   # dev 组带 pyinstaller
 uv run pyinstaller --onefile --name zany \
