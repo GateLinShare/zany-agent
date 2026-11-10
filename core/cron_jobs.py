@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """定时任务: 到点把 prompt 交给正在跑的 chat.py REPL（唤醒 agent 干活）。
 
-任务声明在同目录 cron_jobs.json（标准 5 段 cron 表达式）:
+任务声明在 data_dir() 下 cron_jobs.json（标准 5 段 cron 表达式）:
 
     [
       {"name": "日报", "cron": "0 9 * * *", "prompt": "生成本周工作日报"}

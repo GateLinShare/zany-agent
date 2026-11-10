@@ -64,7 +64,7 @@ bash npm/release.sh main          # 发布主包
 ```bash
 uv run tui.py              # TUI
 uv run tui.py -p "..."     # 无头单次
-uv run eval/main.py [name] # 评测（用例在 evals/cases.jsonl）
+uv run eval/main.py [name] # 评测（用例在 eval/cases.jsonl）
 ```
 
 ## develop 分支：在 master 之上增加

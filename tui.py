@@ -41,7 +41,7 @@ from core.sessions import (
     project_dir,
     save_session,
 )
-from cron_jobs import start_scheduler
+from core.cron_jobs import start_scheduler
 from core.goal import (
     GOAL_MAX_TURNS,
     attach_goal,
