@@ -33,12 +33,12 @@ else
   export PATH="$HOME/.local/bin:$PATH"
 fi
 
-# 2/4 依赖: 有 feishu extra 的分支(develop, gateway 所在)带上它; master 无此 extra, 普通 sync
-echo "[2/4] uv sync$(grep -q 'feishu' pyproject.toml && echo ' --extra feishu')"
-uv sync $(grep -q 'feishu' pyproject.toml && echo '--extra feishu')
+# 2/4 依赖: --all-extras(develop 有 feishu/browser extra, master extras 为空=基座, 两分支同口径不会误卸)
+echo "[2/4] uv sync --all-extras"
+uv sync --all-extras
 
-# 3/4 浏览器内核: 浏览器属 develop 增量(master 无 core/browser.py, 跳过); assets 自带 zip, 离线可装; 已装过就跳过
-if [ ! -f core/browser.py ]; then
+# 3/4 浏览器内核: 浏览器属 develop 增量(master 无 core/plugins/browser.py, 跳过); assets 自带 zip, 离线可装; 已装过就跳过
+if [ ! -f core/plugins/browser.py ]; then
   echo "[3/4] 本分支无浏览器模块, 跳过内核安装"
 elif ls .pw-browsers/chromium_headless_shell-1228/*/chrome-headless-shell >/dev/null 2>&1; then
   echo "[3/4] 浏览器内核已装, 跳过"
