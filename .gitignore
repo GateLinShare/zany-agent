@@ -9,9 +9,9 @@ assets/*.zip
 # 锁文件按机器重算, 不入库(2026-11-05 用户定)
 uv.lock
 
-# PyInstaller 产物
-build/
-dist/
+# PyInstaller 产物(统一进 release/: dist=二进制产物, build=中间物)
+release/build/
+release/dist/
 *.spec
  
 # 本地草稿: 临时脚本(tmp/) 与 commit message 载体(GBK 乱码规避) 

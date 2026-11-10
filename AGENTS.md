@@ -70,6 +70,8 @@ uv run tui.py              # TUI
 uv run tui.py -p "..."     # 无头单次
 uv run eval/main.py [name]      # 评测(用例在 evals/cases.jsonl)
 bash deploy.sh             # 一键部署(fresh clone → uv/依赖/浏览器内核/全局 zany 命令), 见 docs/deploy.md; Windows 用 deploy.cmd(Git Bash 跑 deploy.sh 也会自动转过去)
+bash release/build.sh      # 构建当前平台 frozen 二进制 → release/dist/zany-<target>(无参=自动平台)
+bash release/install.sh    # 把构建出的二进制装进系统 PATH(zany 命令, 覆盖源码版)
 ```
 
 ## 2. 借鉴来源（对照表）
