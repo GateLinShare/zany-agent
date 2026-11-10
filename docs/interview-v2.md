@@ -219,20 +219,35 @@ task 子代理 = "把再建一个 Agent 实例包装成工具":子代理拿同�
 
 ## 5. 评测设计
 
-(与 v1 相同,不变的部分只留结论)
+(与 v1 相同的部分只留结论)
 
-两条原则:**用例即数据、判分即代码**(JSONL 一行一例:seed + query + checks,
-加用例不改代码);**检查产物、不检查话术**(断言文件内容,过程指标只留
-max_steps 效率红线)。每例 tempfile.TemporaryDirectory 隔离 + 全新 agent,
-比 docker 轻三个数量级,天然并行安全。四类 check:answer_contains /
-file_exists / file_contains / max_steps。
+两条原则贯穿四层:**用例即数据、判分即代码**(加用例不改代码);**检查产物、
+不检查话术**(断言可验证的产物/行为,不审话术)。调研底座见
+`docs/agent-benchmarks.md`,关键结论:评测分三家族(代码工程/通用助手/环境
+交互),**判分方式是分水岭——头部评测清一色可执行/规则验证,LLM judge 只配
+当附加分析**。
 
-无框架之后评测多了一层意义:**eval/main.py 直接测的就是手写 loop 的行为**,
-旧方案里 eval 隔着 deepagents 测的是"框架+我的装配"的复合行为 —— 现在
-分数回退可以精确归因到自己的代码。
+评测搭成四层,每层回答一个问题:
 
-进化闭环(规划中)沿用 Penguin 的三条纪律:Rubric 与 Statement 隔离、
-快照回滚、分数严格提升才保留。task 子代理就是评测矩阵的执行器。
+| 层 | 回答的问题 | 判分 | 入口 | 现状 |
+|---|---|---|---|---|
+| L1 功能回归 | 改动有没有弄坏已有功能 | 硬断言 0/1(JSONL 一行一例:seed+query+checks,四类 check:answer_contains/file_exists/file_contains/max_steps),每例临时目录+全新 agent,比 docker 轻三个数量级 | `eval/main.py` | **已有** |
+| L2 回答质量 | 开放性任务答得好不好(总结全不全/诊断对不对/解释清不清) | GEval LLM-as-judge 0~1 分+理由;judge 用项目自带 GLM 封装零新增配置;能用硬断言的绝不过 judge(judge 抽风引入 flaky) | `eval/deepeval/` | **已落地** |
+| L2' 能力榜对标 | 整个 agent 在外部公认基准上什么水平 | Stanford Terminal-Bench 86 题:容器内真实终端任务,可执行脚本判分;先 oracle 标准答案验判分链路再接真 agent(与 SWE-bench gold smoke 同套路) | `eval/terminal-bench/` | **判分链路已验,adapter 待接** |
+| L3 进化闭环 | 谁来改、什么时候留 | 分数严格提升才接受 | `eval/skill-loop/` | **已落地** |
+
+无框架之后评测多了一层意义:**eval 直接测的就是手写 loop 的行为**,旧方案里
+eval 隔着 deepagents 测的是"框架+我的装配"的复合行为 —— 现在分数回退可以
+精确归因到自己的代码。
+
+进化闭环的评测对象是**整个 zany**——一个 git commit:代码+SYSTEM_PROMPT+
+skills+styles 的完整功能面。**git 即快照**:Reference=HEAD、Candidate=工作区
+未提交改动、接受=commit、被拒=`git checkout -- .`;penguin 的 tar.gz 快照+
+版本号机制整个不需要。编排全在三个 SKILL.md 里(benchmark-design 出考卷/
+agent-evaluation 改卷子/agent-optimization 提分循环),平台只出两个现成零件:
+task 子代理(并行 Evaluator)和 `-p` 无头模式(被测入口)。纪律三条:rubric 与
+statement 隔离、快照回滚、分数严格提升才保留。完整架构见
+`docs/self-improvement.md`。
 
 ## 6. 从框架到无框架:迁移决策复盘(这段是面试故事)
 
@@ -324,10 +339,20 @@ mcp SDK(JSON-RPC 握手手写不值)—— **依赖协议,不依赖协议库,更
 
 ### 8.2 "评测怎么做的?"(主答,约 90 秒)
 
-"两条原则:用例即数据、判分即代码 —— 用例是 JSONL,seed 文件加 query 加
-checks,加用例不改代码,换模型重跑即得对比分;检查产物不检查话术 —— 让
-agent 把结果写进文件,断言文件内容,过程只留 max_steps 一条效率红线。
-每例开临时目录、起全新 agent,四类 check 跑完报 PASS/FAIL 和通过率。
+"分四层,每层回答一个问题,便宜的先铺:
+
+- **L1 功能回归守门员**:JSONL 用例+硬断言,检查产物不检查话术——让 agent
+  把结果写进文件,断言文件内容,过程只留 max_steps 一条效率红线。每例临时
+  目录+全新 agent,改动后必跑,不过一票否决。
+- **L2 回答质量**:开放性任务(总结全不全、诊断对不对)没法穷举关键词,
+  用 deepeval 的 GEval 出 0~1 分带理由,judge 就是项目自己的模型封装,零新增
+  配置;能用硬断言的绝不过 judge。
+- **L2' 公开榜对标**:Terminal-Bench(Stanford,86 题,容器内真实终端任务,
+  可执行脚本判分)。选它就是选判分方式——头部评测清一色可执行验证。先拿
+  oracle 标准答案把判分链路验通(17 题全过)再接自己的 agent,SWE-bench
+  gold smoke 同套路。
+- **L3 进化闭环**:评测对象是整个 zany(一个 git commit:代码+prompt+skills),
+  git 即快照——接受=commit,被拒=`git checkout -- .`,分数不严格提升不保留。
 
 无框架后这层还有个额外意义:eval 直接测的就是我手写的 loop,分数回退可以
 精确归因到自己的代码;旧方案隔着一层框架,回归了都不知道是我的装配问题还是
@@ -335,18 +360,24 @@ agent 把结果写进文件,断言文件内容,过程只留 max_steps 一条效�
 
 **可能追问:**
 
-- *"字符串断言太弱?"* —— "分层策略:便宜断言先铺覆盖面,回答'能力有没有
-  发生';评回答质量是另一个问题,升级路径留了 rubric 字段 + LLM judge,
-  判分框架不用动。"
-- *"怎么让 agent 涨分?"* —— 进化闭环:"评测回答现在几分,进化回答怎么涨。
-  抄 PenguinHarness 的纪律:每轮先快照 prompt 和记忆文件,派 optimizer
-  子代理读失败用例提可证伪假设、改 AGENTS.md,重跑 eval 分数不严格提升就
-  回滚;优化者看不到判分细节防作弊;scoreboard 记 版本×用例×run 三级可追溯。
-  task 子代理就是执行器,评测矩阵每格派一个,主对话收结果。"
+- *"LLM judge 不可靠?"* —— "所以分层:便宜断言先铺覆盖面,回答'能力有没有
+  发生';judge 只管'答得好不好'且每次带理由可人工抽查,确定性断言够得着的
+  场景绝不用它——judge 抽风引入 flaky,还多烧模型调用。"
+- *"怎么让 agent 涨分?"* —— 进化闭环:"三个 skill 分工——benchmark-design
+  出考卷(rubric/statement 分离、泄漏检查、Pilot 校准难度),agent-evaluation
+  改卷子(task 子代理,隔离 workspace 跑 -p 无头,纯协议 YAML 返回),
+  agent-optimization 提分循环(可证伪假设→工作区改动=Candidate→L1 回归+
+  L2 矩阵→分数严格提升才 git commit,否则 checkout -- .)。优化者看不到
+  判分细节防作弊。task 子代理就是执行器,评测矩阵每格派一个,主对话收结果。"
 - *"为什么不用现成评测框架?"* —— "看过 pi 的 vitest-evals 和 deepagents 的
-  pytest-harbor,前者绑 TS 生态,后者绑 LangSmith。我的判分就是几个纯函数,
-  百行脚本足够;框架等用例规模和并行需求真到了再引入。既然 loop 都手写了,
-  评测更没有理由背框架。"
+  pytest-harbor,前者绑 TS 生态,后者绑 LangSmith。L1 的判分就是几个纯函数,
+  百行脚本足够;公开榜(Terminal-Bench)用官方 harness 而不是自己搭,预构建
+  镜像+oracle 冒烟先验证判分链路再信分数。既然 loop 都手写了,自己的评测
+  更没有理由背框架。"
+- *"公开榜镜像/网络怎么解?"* —— "环境受限是常态:ghcr 官方镜像拉不动就
+  按官方配方本地重建打回原 tag,基础镜像走国内源;测试阶段每题现场装 uv,
+  所以 base 必配 pip/uv 清华源;build 阶段要 clone github 的题预构建任务
+  镜像。这些配方都落在 eval/terminal-bench/,可从零重跑。"
 
 ### 8.3 "除了 loop 还有什么工程含量?"(主答,约 90 秒)
 
@@ -374,7 +405,8 @@ agent 把结果写进文件,断言文件内容,过程只留 max_steps 一条效�
 
 ## 9. 路线图
 
-1. **评测侧**:rubric LLM judge → 多 run 稳定性 → evolve.py 进化闭环;
+1. **评测侧**:L1 回归/deepeval 质量分/skill-loop 进化闭环/Terminal-Bench 判分链路
+   已落地 → 下一步:zany adapter 接 Terminal-Bench 真跑分、多 run 稳定性、评测报告带成本维度;
 2. **能力侧**:工具调用白名单 + 审批模式(Tool 形态统一后是纯增量;
    hermes 语义的协作式 interrupt 已落地:两段式 Ctrl-C + partial 保留);
 3. **分发侧**:npm 首发收尾(NPM_TOKEN secret 配好即可走 Actions release);
