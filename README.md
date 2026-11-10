@@ -1,6 +1,6 @@
 # zany-agent
 
-无框架手写的 mini coding agent：Anthropic 原生消息单协议贯穿（模型输入 = 会话落盘 = 回放格式），单循环、单工具形态，零编排框架。架构全量文档见 [docs/architecture.md](docs/architecture.md)。
+极简 code agent：内置 `ls` / `read_file` / `write_file` / `edit_file` / `execute` 五个基础工具 + `task` 子任务派发（子代理独立跑，只回传结论），skills 渐进披露与 MCP 工具按需外挂，不占内核。内核参考 pi，TUI 观感对标 Claude Code。相较 Claude Code：零重依赖启动快，项目记忆（AGENTS.md）与个人记忆（USER.md）每轮对话动态载入——长对话上下文压缩后记忆依然完整生效。架构全量文档见 [docs/architecture.md](docs/architecture.md)。
 
 ## 项目特点：双层记忆不遗忘
 
