@@ -19,6 +19,11 @@ if [ -w /usr/local/bin ] || [ "$(id -u)" = 0 ]; then
 else
   DEST="$HOME/.local/bin/zany"; mkdir -p "$HOME/.local/bin"
 fi
+# 与源码部署(core/deploy/deploy.sh)互斥: 目标位上已有源码 shim(#! 开头且走 uv run)先移除
+if [ -f "$DEST" ] && [ "$(head -c 2 "$DEST")" = "#!" ] && grep -qs "uv run --project" "$DEST"; then
+  echo "检测到源码版 zany(core/deploy/deploy.sh 装的), 移除后装二进制"
+  rm -f "$DEST"
+fi
 install -m 755 "$BIN" "$DEST"
 echo "installed: $DEST"
 if [ -n "$PREV" ] && [ "$PREV" != "$DEST" ]; then
