@@ -2,7 +2,7 @@
 """评测 loop: JSONL 用例 → 临时目录隔离跑 agent → 断言判分 → 汇总。
 
 参考 pi(packages/evals)和 deepagents(libs/evals)的最小子集:
-用例格式见 evals/cases.jsonl, 每行:
+用例格式见 eval/cases.jsonl, 每行:
     {"name": "...", "seed": {"/foo.md": "内容"}, "query": "...",
      "checks": {"answer_contains": ["三"], "file_contains": {"/out.txt": ["ok"]},
                 "file_exists": ["/out.txt"], "max_steps": 6}}
@@ -20,7 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # 脚本不在根目录了, 补上 import agent 的路径
 from agent import build_agent, text_of
 
-EVALS_FILE = Path(__file__).resolve().parent.parent / "evals" / "cases.jsonl"
+EVALS_FILE = Path(__file__).resolve().parent / "cases.jsonl"
 
 
 def load_cases(pattern: str) -> list[dict]:
