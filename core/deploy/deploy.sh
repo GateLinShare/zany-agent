@@ -12,7 +12,7 @@ if uname -r | grep -qi microsoft; then
   exit 1
 fi
 
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/../.."  # 脚本在 core/deploy/ 下, 仓库根在两级上
 REPO=$(pwd)
 
 # 0/4 .env: 运行时数据根(~/.zany)下缺 .env 时自 env.example 播种(填好密钥即可用)
