@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 case "$(uname -s)-$(uname -m)" in
   Linux-x86_64)  TARGET=linux-x64 ;;
   Darwin-arm64)  TARGET=darwin-arm64 ;;
-  MINGW*|MSYS*|CYGWIN*) echo "Windows 请手工拷 exe 或用 npm 安装器" >&2; exit 1 ;;
+  MINGW*|MSYS*|CYGWIN*) echo "Windows 用 release/install.ps1 (PowerShell)" >&2; exit 1 ;;
   *) TARGET=$(echo "$(uname -s)-$(uname -m)" | tr 'A-Z_' 'a-z-') ;;
 esac
 BIN="${1:-release/dist/zany-$TARGET}"

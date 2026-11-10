@@ -17,11 +17,40 @@
 
 ### 安装与启动
 
-**方式一：frozen 二进制（本地构建，零 Python 依赖）**：
+**方式一：源码部署**（仓库 checkout，走 uv 管理 Python 环境）：
+
+```bash
+uv run core/tui.py             # 零部署直接跑
+uv run core/tui.py -p "..."    # 无头单次
+
+bash core/deploy/deploy.sh     # 一键部署: uv + 依赖 + 全局命令 zany（无浏览器模块自动跳过内核；sh 调用也兼容）
+```
+
+Windows PowerShell：
+
+```powershell
+.\core\deploy\deploy.cmd       # 同 deploy.sh，Windows 用 .cmd
+```
+
+部署后任意目录 `zany` 即启动（cwd 就是 agent 工作目录）：
+
+```bash
+zany             # TUI
+zany -p "..."    # 无头单次
+```
+
+**方式二：frozen 二进制（本地构建，零 Python 依赖）**：
 
 ```bash
 bash release/build.sh        # 按当前平台构建单文件二进制 → release/dist/zany-<target>（可传 target 跨平台命名）
 bash release/install.sh      # 装进系统 PATH（zany 命令，自动移除已装的源码版）
+```
+
+Windows PowerShell 用同名 .ps1（.sh 在 PS 里不执行）：
+
+```powershell
+.\release\build.ps1     # 构建 → release\dist\zany-win32-x64.exe
+.\release\install.ps1   # 装进 ~\.local\bin\zany.exe
 ```
 
 首跑自动生成 `~/.zany/.env`，填入 `ANTHROPIC_API_KEY` 后在任意目录：
@@ -33,19 +62,6 @@ zany             # 会话/记忆在 ~/.zany/, 跨项目共用
 ```
 
 可选：MCP 服务器配置 `~/.zany/mcp_servers.json`（需目标机自装 uv）。
-
-**方式二：源码部署**（仓库 checkout，走 uv 管理 Python 环境）：
-
-```bash
-bash core/deploy/deploy.sh   # 一键部署: uv + 依赖 + 全局命令 zany（无浏览器模块自动跳过内核；sh 调用也兼容）
-```
-
-部署后任意目录 `zany` 即启动（cwd 就是 agent 工作目录）：
-
-```bash
-zany             # TUI
-zany -p "..."    # 无头单次
-```
 
 > 两种部署写同一个 `zany` 命令位，重装一种会自动移除另一种；会话/记忆都在 `~/.zany/`，互换不丢数据。develop 分支部署装的是 `zany-dev`，与 master 的 zany 并存。
 
