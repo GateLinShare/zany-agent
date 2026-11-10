@@ -52,11 +52,6 @@ zany -p "..."    # 无头单次
 
 PyInstaller onefile 二进制 + npm 平台分包（codex 同款），版本单源 pyproject.toml：
 
-```bash
-bash npm/release.sh linux-x64     # 构建并发布平台包
-bash npm/release.sh main          # 发布主包
-```
-
 正式发版走 GitHub Actions（workflow_dispatch），流程见 [docs/npm-release.md](docs/npm-release.md)。
 
 ### 开发模式（不装全局命令，仓库内直接跑）

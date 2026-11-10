@@ -66,14 +66,14 @@ jobs:
           generate_release_notes: true
           files: release-assets/*
       - name: Set npm package version
-        working-directory: npm/main
+        working-directory: release/npm/main
         run: npm version "${{ inputs.version }}" --no-git-tag-version --allow-same-version
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           registry-url: https://npm.pkg.github.com
       - name: Publish npm installer to GitHub Packages
-        working-directory: npm/main
+        working-directory: release/npm/main
         run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
