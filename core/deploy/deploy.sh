@@ -58,6 +58,11 @@ else
   BIN="$HOME/.local/bin/$CMD"
   mkdir -p "$HOME/.local/bin"
 fi
+# 与二进制部署(release/install.sh)互斥: 目标位上已有 frozen 二进制先移除(二进制不以 #! 开头)
+if [ -f "$BIN" ] && [ "$(head -c 2 "$BIN")" != "#!" ]; then
+  echo "检测到二进制版 $CMD(release/install.sh 装的), 移除后装源码版"
+  rm -f "$BIN"
+fi
 cat > "$BIN" <<EOF
 #!/usr/bin/env bash
 # zany coding agent: 以当前目录为工作项目启动(cwd 即 workdir, AGENTS.md/文件工具/execute 全锚定它)
