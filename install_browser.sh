@@ -24,10 +24,10 @@ mkdir -p ".pw-browsers/$BUILD"
 unzip -oq "$ZIP" -d ".pw-browsers/$BUILD"   # zip 顶层目录名(chrome-headless-shell-linux*)正是 playwright 要的子目录名
 chmod +x ".pw-browsers/$BUILD"/*/chrome-headless-shell
 
-echo "[2/3] uv sync (playwright==1.61.0, 走 tuna 源)"
-uv sync
+echo "[2/3] uv sync --all-extras (playwright==1.61.0, 走 tuna 源)"
+uv sync --all-extras
 
 echo "[3/3] 验证: headless 打开 example.com"
-uv run python -m core.browser --selftest
+uv run python -m core.plugins.browser --selftest
 
 echo "安装完成。"
