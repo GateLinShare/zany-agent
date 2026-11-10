@@ -3,7 +3,7 @@ rem zany 一键部署(Windows 原生版, 对应 deploy.sh): uv(缺则提示装) 
 rem 用法: 仓库根 cmd/PowerShell 跑 deploy.cmd (fresh clone 即可, python/依赖由 uv 管理)
 chcp 65001 >nul
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0\\..\"
 set "REPO=%CD%"
 
 rem [1/3] uv: 没有就提示装(官方安装器, 落 %USERPROFILE%\.local\bin)
