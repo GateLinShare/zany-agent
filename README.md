@@ -55,14 +55,6 @@ PyInstaller onefile 二进制 + npm 平台分包（codex 同款），版本单�
 
 正式发版走 GitHub Actions（workflow_dispatch），流程见 [docs/npm-release.md](docs/npm-release.md)。
 
-### 开发模式（不装全局命令，仓库内直接跑）
-
-```bash
-uv run core/tui.py              # TUI
-uv run core/tui.py -p "..."     # 无头单次
-uv run eval/main.py [name] # 评测（用例在 eval/cases.jsonl）
-```
-
 ## develop 分支：在 master 之上增加
 
 工具与运行形态：
