@@ -37,7 +37,7 @@ from core.frozen import IS_FROZEN, app_root, data_dir
 if IS_FROZEN:
     ENV_PATH = data_dir() / ".env"
 else:
-    _repo_env = Path(__file__).resolve().parent / ".env"
+    _repo_env = Path(__file__).resolve().parent.parent / ".env"  # 挪进 core/ 后, 仓库根在两级上
     ENV_PATH = _repo_env if _repo_env.is_file() else Path.home() / ".zany" / ".env"
 if ENV_PATH.is_file():
     for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
