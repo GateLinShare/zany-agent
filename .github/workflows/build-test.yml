@@ -7,7 +7,7 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-22.04, target: linux-x64, sep: ":", exe: "" }
-          - { os: macos-14, target: darwin-arm64, sep: ":", exe: "" }
+          - { os: macos-latest, target: darwin-arm64, sep: ":", exe: "" }
           - { os: windows-2022, target: win32-x64, sep: ";", exe: ".exe" }
     runs-on: ${{ matrix.os }}
     steps:
@@ -20,6 +20,7 @@ jobs:
           uv run pyinstaller --onefile --name zany \
             --collect-all textual --collect-all croniter \
             --add-data "styles${{ matrix.sep }}styles" --add-data "skills${{ matrix.sep }}skills" \
+            --add-data "env.example${{ matrix.sep }}." \
             tui.py
           mkdir -p out
           cp dist/zany${{ matrix.exe }} out/zany-${{ matrix.target }}${{ matrix.exe }}
