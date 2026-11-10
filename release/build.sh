@@ -30,4 +30,5 @@ uv run pyinstaller --onefile --name zany \
   --add-data "env.example${SEP}." \
   core/tui.py
 mv "$DIST/zany$EXE" "$DIST/zany-$TARGET$EXE"
+rm -f zany.spec  # pyinstaller 命令行模式的副产物, 无用
 echo "built $DIST/zany-$TARGET$EXE (v$VERSION)"
