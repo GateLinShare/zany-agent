@@ -17,10 +17,11 @@
 
 ### 安装与启动
 
-**npm 安装（推荐，零 Python 依赖）**：
+**方式一：frozen 二进制（本地构建，零 Python 依赖）**：
 
 ```bash
-npm i -g zany-agent        # 预编译二进制, 内置 skills 随包分发
+bash release/build.sh        # 按当前平台构建单文件二进制 → release/dist/zany-<target>（可传 target 跨平台命名）
+bash release/install.sh      # 装进系统 PATH（zany 命令，自动移除已装的源码版）
 ```
 
 首跑自动生成 `~/.zany/.env`，填入 `ANTHROPIC_API_KEY` 后在任意目录：
@@ -33,10 +34,10 @@ zany             # 会话/记忆在 ~/.zany/, 跨项目共用
 
 可选：MCP 服务器配置 `~/.zany/mcp_servers.json`（需目标机自装 uv）。
 
-**源码部署**（仓库 checkout，走 uv 管理 Python 环境）：
+**方式二：源码部署**（仓库 checkout，走 uv 管理 Python 环境）：
 
 ```bash
-bash core/deploy/deploy.sh   # 一键部署: uv + 依赖 + 全局命令 zany(无浏览器模块, 自动跳过内核)
+bash core/deploy/deploy.sh   # 一键部署: uv + 依赖 + 全局命令 zany（无浏览器模块自动跳过内核；sh 调用也兼容）
 ```
 
 部署后任意目录 `zany` 即启动（cwd 就是 agent 工作目录）：
@@ -46,16 +47,7 @@ zany             # TUI
 zany -p "..."    # 无头单次
 ```
 
-> npm 版与源码版都读 `~/.zany/` 下的会话与记忆，但装了 deploy.sh 的 `zany` 命令后再 `npm i -g zany-agent` 会撞名，看 PATH 优先级。
-
-### 本地构建二进制（维护者）
-
-PyInstaller onefile 单文件（产物统一在 `release/` 目录）:
-
-```bash
-bash release/build.sh        # 按当前平台构建 → release/dist/zany-<target>（可传 target 跨平台命名）
-bash release/install.sh      # 把二进制装进系统 PATH（zany 命令，覆盖源码版）
-```
+> 两种部署写同一个 `zany` 命令位，重装一种会自动移除另一种；会话/记忆都在 `~/.zany/`，互换不丢数据。develop 分支部署装的是 `zany-dev`，与 master 的 zany 并存。
 
 ### 构建 npm 包（维护者）
 
