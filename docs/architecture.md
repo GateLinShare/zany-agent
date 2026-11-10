@@ -7,15 +7,14 @@
 ## 1. 总体分层与文件职责
 
 ```
-core/agent.py          组装层:.env + SYSTEM_PROMPT + 风格包(prompt_packs) + build_agent(workdir)
-core/tui.py            UI 层:claude 式 TUI(2026-11-09 tui2 转正)/ 会话恢复 / cron / 无头模式(-p)
-  core/cron_jobs.py    cron 定时任务:调度线程只入队,主循环消费后当普通输入跑一轮
-eval/main.py      评测:eval/cases.jsonl 用例 → 临时目录跑 agent → 断言判分
 core/
+  tui.py          UI 层:claude 式 TUI(2026-11-09 tui2 转正)/ 会话恢复 / cron / 无头模式(-p)
+  agent.py        组装层:.env + SYSTEM_PROMPT + 风格包(prompt_packs) + build_agent(workdir)
+  cron_jobs.py    cron 定时任务:调度线程只入队,主循环消费后当普通输入跑一轮
   loop.py         ★ agent loop:流式聚合 → 派发工具 → 回填 → 循环(约 320 行)
   model.py        模型薄封装:裸 httpx 直调 /v1/messages + 手解 SSE(不引 anthropic SDK——导入重, Windows 冷启动 6s→0.4s); 流式转发/非流式补全(压缩用)
   tools.py        Tool 统一形态 + 五内置工具(ls/read_file/write_file/edit_file/execute)
-  subcore/agent.py     task 子代理(递归在构造处掐死)
+  subcore/agent.py  task 子代理(递归在构造处掐死)
   summarize.py    上下文压缩(改写式)
   sessions.py     会话持久化:Anthropic 原生 dict 直接 JSON 落盘
   mcp.py          MCP 工具加载(单次连接即用即走)
@@ -24,6 +23,10 @@ core/
   plugins/        能力插件 loader:core/plugins/<name>.py 暴露 register(workdir)->list[Tool]
   frozen.py       frozen(PyInstaller)路径收口:只读资源 app_root() / 可写数据 data_dir()(~/.zany)
   messages.py     消息块辅助(text_of / tool_uses / est_tokens)
+  deploy/         源码一键部署:deploy.sh / deploy.cmd(uv + 依赖 + 全局命令)
+eval/             评测:main.py + cases.jsonl(用例 → 临时目录跑 agent → 断言判分)
+release/          构建/发布统一目录:build.sh(构建当前平台)、install.sh(装系统 PATH)、dist 产物、npm 包源(npm/main)
+.github/workflows/  build-test.yml(手动触发构建验证)/ release.yml(frozen + npm 发版)
 ```
 
 四条贯穿性约定:
@@ -366,9 +369,17 @@ registry —— `.env` 的 `ZANY_PLUGINS` 开关 + Python import 就是全部仪
 
 ## 11. 分发(frozen + npm)
 
-master 基座打 PyInstaller onefile 经 npm 裸包 `zany-agent` 分发(平台包
+本地构建/部署:
+
+```bash
+bash release/build.sh      # 无参=当前平台 → release/dist/zany-<target>; 可传 target 同款命名
+bash release/install.sh    # 二进制装进系统 PATH(zany 命令, 覆盖源码版), 装后 --help 自检
+```
+
+正式发版:GitHub Actions(`release.yml`, workflow_dispatch)打三平台 onefile 上
+Release 并发 npm 包, 包源在 `release/npm/main`(平台包
 `zany-agent-{linux-x64,darwin-arm64,win32-x64}` 走 optionalDependencies,
-codex 同款),版本单源 pyproject.toml。frozen 路径约定收口 `core/frozen.py`:
+codex 同款), 版本单源 pyproject.toml。frozen 路径约定收口 `core/frozen.py`:
 只读资源 `app_root()`(_MEIPASS)、可写数据 `data_dir()`(~/.zany);内置
 skills/styles 随包分发。源码里所有 `read_text/open` 必须 `encoding="utf-8"`
 (Windows 默认 GBK 必崩)。发布流程 docs/npm-release.md。
