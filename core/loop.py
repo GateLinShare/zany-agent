@@ -55,6 +55,9 @@ class Agent:
         self._last_prompt_tokens: int | None = None  # 上次响应真实 prompt tokens
         self._ineffective = 0        # 连续无效压缩计数(压缩后降幅 <10%)
         self._compact_dead = False   # 摘要 LLM 失败熔断: 本会话不再自动压
+        # 空回复重试(hermes _empty_content_retries): GLM/vLLM 网关偶发吐空 content
+        # assistant(2026-11-11 实测: 大 base64 图片 tool_result 后返回空消息), 不兜底=静默中断
+        self._empty_retries = 0
 
     @property
     def _interrupt_requested(self) -> str | None:
@@ -212,6 +215,23 @@ class Agent:
                 self.was_interrupted = True
                 return
 
+            # 空回复重试(hermes _empty_content_retries 语义): 无 tool_use、无非空 text
+            # 即为空(thinking-only 在 Anthropic 协议下不是合法终止态, 同样算空)。
+            # 不 append 空消息直接重试(历史里不留空 assistant 块), 3 次仍空则落
+            # 哨兵文本收尾; 每次重试发事件给 UI, 失败可见不静默。
+            if not any(b.get("type") == "tool_use"
+                       or (b.get("type") == "text" and b.get("text", "").strip())
+                       for b in blocks):
+                self._account(turn_in, turn_out)  # 空回复也烧了 token, 记账
+                if self._empty_retries < 3:
+                    self._empty_retries += 1
+                    yield ("empty_retry", self._empty_retries)
+                    continue
+                note = "模型连续返回空回复(已重试 3 次), 本轮到此为止; 请重发消息再试"
+                messages.append({"role": "assistant", "content": [{"type": "text", "text": note}]})
+                yield ("empty_giveup", note)
+                return
+            self._empty_retries = 0
             messages.append({"role": "assistant", "content": blocks})
 
             # 记账(hermes update_from_response): 每次响应后累计真实 usage
