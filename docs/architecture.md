@@ -2,7 +2,7 @@
 
 无框架手写的 mini coding agent(GLM,走 anthropic 兼容代理,`Authorization: Bearer`)。
 从 deepagents + langchain 迁移而来(commit `455d92b`),协议只有一套、循环只有一个、
-工具只有一种形态。组件实现细节与决策叙事见 `docs/interview-v2.md`。
+工具只有一种形态。
 
 ## 1. 总体分层与文件职责
 
