@@ -14,7 +14,6 @@
 """
 
 import base64
-import contextlib
 import os
 import signal
 import subprocess
@@ -305,10 +304,24 @@ def _edit(workdir, args, ledger) -> str:
     return f"已替换 {len(spans)} 处 ({args['path']})" + ("(模糊匹配)" if fuzzy else "")
 
 
-def _killpg(p: subprocess.Popen) -> None:
-    """杀 p 所在进程组; 已死/无权限则忽略。"""
-    with contextlib.suppress(ProcessLookupError, PermissionError):
-        os.killpg(os.getpgid(p.pid), signal.SIGKILL)  # 杀整组, 防 shell 的孙子进程残留孤儿
+def _kill_tree(p: subprocess.Popen) -> None:
+    """按会话(SID)杀整棵进程树; 逐个忽略竞态消失/无权限。
+
+    只 killpg 不够: GNU timeout/setsid 类会自立进程组躲过整组击杀(实测
+    `timeout 60 ffmpeg ...` 超时后 timeout+ffmpeg 成孤儿攥住输出管道, 把
+    收尾 communicate() 永久挂死), 但同会话 SID 不变 —— 按 SID 扫 /proc 全灭。"""
+    try:
+        sid = os.getsid(p.pid)
+    except ProcessLookupError:
+        sid = p.pid  # 已收尸: start_new_session 下 SID==pid
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        try:
+            if os.getsid(int(entry)) == sid:
+                os.kill(int(entry), signal.SIGKILL)
+        except OSError:  # 进程刚好消失/无权限
+            pass
 
 
 def _execute_tool(workdir, ledger) -> Tool:
@@ -319,20 +332,24 @@ def _execute_tool(workdir, ledger) -> Tool:
 
     def run(args: dict) -> str:
         command, t = args["command"], int(args.get("timeout", EXEC_TIMEOUT))
-        # start_new_session(POSIX): 子进程自成进程组, 超时/打断可整组击杀(pi bash.ts 语义)
+        # start_new_session: 子进程自成会话, 超时/打断按 SID 杀整树(pi bash.ts 语义)。
+        # stdin=DEVNULL: 不继承终端 —— ffmpeg 这类读交互 stdin 的命令拿到 EOF
+        # 直接干活, 而不是永久阻塞把超时击杀变哑(它抓 SIGTERM 优雅退出, 卡在
+        # 自动重启的 read(stdin) 里标志永远没人查, timeout 只发 TERM 不升级)。
         p = subprocess.Popen(
-            command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            command, shell=True, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, errors="replace", cwd=workdir, start_new_session=True,
         )
         live[:] = [p]
         try:
             out, err = p.communicate(timeout=t)
         except subprocess.TimeoutExpired:
-            _killpg(p)
+            _kill_tree(p)
             out, err = p.communicate()  # 收尸, 保住超时前已产出的输出
             partial = _truncate(((out or "") + (("\n[stderr] " + err) if err else "")).strip())
-            return f"错误: 命令超时(>{t}s), 已 kill 整个进程组。\n[超时前的输出]\n{partial}" if partial else \
-                f"错误: 命令超时(>{t}s), 已 kill 整个进程组(无输出)"
+            return f"错误: 命令超时(>{t}s), 已 kill 整棵进程树。\n[超时前的输出]\n{partial}" if partial else \
+                f"错误: 命令超时(>{t}s), 已 kill 整棵进程树(无输出)"
         text = (out or "") + (("\n[stderr] " + err) if err else "")
         text = (text.strip() or "(无输出)") + (f"\n[exit {p.returncode}]" if p.returncode else "")
         n = ledger.see_exec(command)
@@ -346,13 +363,14 @@ def _execute_tool(workdir, ledger) -> Tool:
         return text
 
     def kill() -> None:
-        if live and live[0].poll() is None:
-            _killpg(live[0])
+        # 不查 poll(): sh 成僵尸时 poll() 有返回值会误判"已结束"漏杀, 树还活着
+        if live:
+            _kill_tree(live[0])
 
     return Tool("execute", f"执行 shell 命令(真实 shell, 用真实路径), 默认超时 {EXEC_TIMEOUT} 秒。\n"
                 "防挂起纪律: 探查类命令(find/ls 结果喂 cat/tail/grep 等无文件参数场景)用 `xargs` 或判空(`f=$(...); [ -n \"$f\" ] && cat \"$f\"`), "
                 "或命令尾部加 `</dev/null`; 可能网络/等待的命令套 `timeout N` 前缀, "
-                "宁可命令失败也别空等——工具超时会 kill 进程组, 但损失掉的是全部等待时间。",
+                "宁可命令失败也别空等——工具超时会 kill 整棵进程树, 但损失掉的是全部等待时间。",
                 {"type": "object", "properties": {
                      "command": {"type": "string"}, "timeout": {"type": "integer"}},
                  "required": ["command"]},
