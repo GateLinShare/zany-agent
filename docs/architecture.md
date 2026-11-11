@@ -395,7 +395,7 @@ Release 并发 npm 包, 包源在 `release/npm/main`(平台包
 `zany-agent-{linux-x64,darwin-arm64,win32-x64}` 走 optionalDependencies,
 codex 同款), 版本单源 pyproject.toml。frozen 路径约定收口 `core/frozen.py`:
 只读资源 `app_root()`(_MEIPASS)、可写数据 `data_dir()`(~/.zany);内置
-skills/styles 随包分发。源码里所有 `read_text/open` 必须 `encoding="utf-8"`
+skills 全局/用户级目录照常生效(styles 随包分发)。源码里所有 `read_text/open` 必须 `encoding="utf-8"`
 (Windows 默认 GBK 必崩)。发布流程 docs/npm-release.md。
 
 ## 12. 一句话总结
