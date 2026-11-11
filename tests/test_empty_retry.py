@@ -4,6 +4,11 @@ content assistant, 不兜底 = 回合静默无输出。
 - 无 tool_use / 无非空 text 即空(thinking-only、空 text 都算), 不 append 直接重试
 - 每次重试发 ("empty_retry", n), 3 次耗尽落哨兵文本 ("empty_giveup", note)
 - 成功有内容后计数清零(不跨回合累计)
+
+上下文超限兑底(hermes overflow error handler 语义):
+- 模型调用拖 HTTP 413 或带超长特征的 400 → 强制压缩一次再重试(run 限一次)
+- 压缩后 messages 就地改写, 重试成功; 第二次仍超限则原样上抛
+- 非 overflow 异常(如 HTTP 500)不受影响, 照旧上抛
 """
 
 import sys
@@ -21,9 +26,22 @@ def Ev(type, **kw):
 class FakeModel:
     def __init__(self, turns):
         self.turns = list(turns)
+        self.calls = 0
 
     def stream(self, system, messages, schemas):
-        yield from self.turns.pop(0)
+        self.calls += 1
+        t = self.turns.pop(0)
+        if isinstance(t, Exception):
+            raise t
+        yield from t
+
+
+class OverflowErr(RuntimeError):
+    pass
+
+
+def overflow_err():
+    return OverflowErr("HTTP 400: invalid_request_error: prompt is too long: 250000 tokens > 200000 maximum")
 
 
 def empty_turn():
@@ -52,6 +70,49 @@ def make_agent(model):
     tool = Tool(name="noop", description="noop", input_schema={"type": "object", "properties": {}},
                 run=lambda a: "ok")
     return Agent(model, system_base="t", tools=[tool], workdir=str(Path(__file__).parent))
+
+
+def test_overflow_compresses_and_retries():
+    """400 too long → 强压一次 → 重试成功; 摘要摘要真身进 messages。"""
+    a = make_agent(FakeModel([overflow_err(), text_turn("ok")]))
+    msgs = [{"role": "user", "content": "hi " * 50}]  # est 足够压出非空摘要
+    evs = list(a.stream(msgs))
+    assert not any(e[0] == "empty_giveup" for e in evs)
+    assert a.model.calls == 2
+    assert msgs[-1]["content"][0]["text"] == "ok"
+    assert any(e[0] == "compact" for e in evs)
+
+
+def test_overflow_second_time_raises():
+    """第二次仍超限: run 限一次强压, 原样上抛不无限循环。"""
+    a = make_agent(FakeModel([overflow_err(), overflow_err()]))
+    msgs = [{"role": "user", "content": "hi " * 50}]
+    try:
+        list(a.stream(msgs))
+        raise AssertionError("should raise")
+    except OverflowErr:
+        pass
+    assert a.model.calls == 2
+
+
+def test_non_overflow_error_untouched():
+    """HTTP 500 不带超长特征: 照旧上抛, 不触发压缩。"""
+    a = make_agent(FakeModel([RuntimeError("HTTP 500: internal"), text_turn("ok")]))
+    msgs = [{"role": "user", "content": "hi"}]
+    try:
+        list(a.stream(msgs))
+        raise AssertionError("should raise")
+    except RuntimeError as e:
+        assert "500" in str(e)
+
+
+def test_is_overflow_patterns():
+    from core.loop import _is_overflow
+    assert _is_overflow(RuntimeError("HTTP 413: Payload Too Large"))
+    assert _is_overflow(RuntimeError("HTTP 400: prompt is too long: 1 tokens > 1 maximum"))
+    assert _is_overflow(RuntimeError("HTTP 400: This model's maximum context length is 131072 tokens"))
+    assert not _is_overflow(RuntimeError("HTTP 400: invalid x-api-key"))
+    assert not _is_overflow(RuntimeError("HTTP 500: internal"))
 
 
 def test_empty_then_success():
@@ -112,4 +173,8 @@ if __name__ == "__main__":
     test_exhausted_giveup()
     test_counter_resets_after_success()
     test_whitespace_text_is_empty()
+    test_overflow_compresses_and_retries()
+    test_overflow_second_time_raises()
+    test_non_overflow_error_untouched()
+    test_is_overflow_patterns()
     print("test_empty_retry: all passed")

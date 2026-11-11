@@ -19,6 +19,16 @@ from .summarize import maybe_summarize
 MAX_TURNS = 40  # 单次 run 的工具轮数上限, 防模型打转烧钱
 
 
+def _is_overflow(e: Exception) -> bool:
+    """识别上下文超限类 API 错误(hermes FailoverReason.payload_too_large/
+    context_overflow 的简化版): 413, 或 400 带超长特征文本。
+    典型样本: Anthropic "prompt is too long: X tokens > Y maximum",
+    vLLM "maximum context length is X tokens"。"""
+    s = str(e)
+    return "HTTP 413" in s or ("HTTP 400" in s
+                               and any(k in s for k in ("too long", "context length", "maximum context")))
+
+
 class AbortError(Exception):
     """用户取消(区别于真异常): 工具/子代理内部检测到 interrupt 并主动上抛时用。
     loop 识别后 tool_result 记为取消而非错误, UI 侧 ("interrupted", reason) 同语义。"""
@@ -58,6 +68,8 @@ class Agent:
         # 空回复重试(hermes _empty_content_retries): GLM/vLLM 网关偶发吐空 content
         # assistant(2026-11-11 实测: 大 base64 图片 tool_result 后返回空消息), 不兜底=静默中断
         self._empty_retries = 0
+        # overflow 强压重试(hermes overflow error handler): 一次 run 只试一次
+        self._overflow_retried = False
 
     @property
     def _interrupt_requested(self) -> str | None:
@@ -122,6 +134,7 @@ class Agent:
         cancelled tool_result 保持配对, 消息序列始终合法可回放。
         """
         self.clear_interrupt()  # 防御: 上一轮残留的标志不带入新一轮
+        self._overflow_retried = False  # overflow 强压机会每次 run 重置
         self.was_interrupted = False
         try:
             yield from self._run(messages)
@@ -192,10 +205,27 @@ class Agent:
                         break  # 不调"final 聚合"—— hermes 对部分消费的流也只取已收到部分
                     for out in _consume(ev):
                         yield out
-            except Exception:
-                if not self._interrupt_requested:
+            except Exception as e:
+                if self._interrupt_requested:
+                    aborted = True  # abort() 关流导致的读错误 = 打断本身, 走收尾
+                elif not self._overflow_retried and _is_overflow(e):
+                    # 上下文超限兜底(hermes overflow error handler 语义): 单轮暴涨
+                    # (如 200k 字符工具输出回填)会让 preflight 用"上次真实 tokens"
+                    # 低估本次请求, 压缩不触发 → API 400; 历史不变, 重试永远 400 死锁。
+                    # 对策: 强制压缩一次再重试(run 内限一次, 防循环烧钱);
+                    # 摘要调用自身也超限时放弃并抛原始错误。此时 messages 尾部
+                    # 要么是 user(tool_result) 要么是首轮 user, 均闭合, 压缩不破坏配对。
+                    self._overflow_retried = True
+                    try:
+                        _, _, _, est_after = maybe_summarize(
+                            self.model, messages, trigger_tokens=1 << 62)
+                    except Exception:
+                        raise e from None
+                    self.reset_tool_ledger()  # 摘要改写掉旧 read 结果, 行为账本同步失效
+                    yield ("compact", 0, est_after)
+                    continue
+                else:
                     raise
-                aborted = True  # abort() 关流导致的读错误 = 打断本身, 走收尾
             # 打断收尾(hermes close_interrupted_tool_sequence 的 Anthropic 版):
             # 丢未完成的 thinking 块(没有 signature, 原样回传会被 API 拒),
             # 保留 text/tool_use; 有 tool_use 就补 cancelled tool_result 保配对。
