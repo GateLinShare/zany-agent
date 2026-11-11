@@ -1,4 +1,4 @@
-# agent.md — 项目架构与借鉴来源
+# AGENTS.md — 项目架构与借鉴来源
 
 > 本项目：`/data01/tsn/code/tsn_files/zany-agent`
 > 定位：**无框架手写的 mini coding agent**（GLM，走 anthropic 兼容代理）。从
@@ -8,63 +8,53 @@
 ## 1. 当前架构
 
 ```
-core/agent.py          组装层:.env + SYSTEM_PROMPT + build_agent(workdir)
-core/tui.py            UI 层:claude 式 TUI(烙定区 print 进原生滚动 + 底部活动区整帧重绘, 只用 CUU/ED/CHA)/ 会话恢复 / cron / 无头模式(-p); 会话标题(首轮后异步生成 + /title 手动, 落顶层 title 键, /resume 列表优先展示); 
-eval/main.py      评测:eval/cases.jsonl 用例 → 临时目录跑 agent → 断言判分
+core/agent.py      组装层:.env + SYSTEM_PROMPT + build_agent(workdir)
+core/tui.py        UI 层:claude 式 TUI(烙定区 print 进原生滚动 + 底部活动区整帧重绘)/ 会话恢复 / cron / 无头模式(-p) / 会话标题
+eval/main.py       评测:eval/cases.jsonl 用例 → 临时目录跑 agent → 断言判分
 core/
-  loop.py         ★ agent loop:聚合 → 派发工具 → 回填 → 循环(约110行)
-  model.py        模型薄封装:裸 httpx 直调 /v1/messages + 手解 SSE(不引 anthropic SDK——导入重, Windows 冷启动 6s→0.4s; 流式转发/非流式补全(压缩用)不变)
+  loop.py         ★ agent loop:聚合 → 派发工具 → 回填 → 循环; 空回复重试(3次)/超限强压重试兜底都在这
+  model.py        模型薄封装:裸 httpx 直调 /v1/messages + 手解 SSE(不引 anthropic SDK——导入重, Windows 冷启动 6s→0.4s)
   tools.py        Tool 统一形态 + 五内置工具(ls/read_file/write_file/edit_file/execute)
   goal.py         goal 模式:续跑投影 prompt + update_goal 工具(状态真身在 tui)
   subcore/agent.py     task 子代理(递归在构造处掐死)
-  summarize.py    上下文压缩(改写式, 80k 触发, 保尾 20 条)
+  summarize.py    上下文压缩(改写式, 窗口×比例触发默认 120k, 保尾 20 条)
   sessions.py     会话持久化:Anthropic 原生 dict 直接 JSON 落盘
   mcp.py          MCP 工具加载(单次连接即用即走)
   skills.py       skills 清单注入 system prompt(渐进披露; 项目 skills/、.claude/skills、.agents/skills + 全局 ~/.zany/skills, 同名先到先得去重)
-  plugins/        能力插件 loader:core/plugins/<name>.py 的 register(workdir)->list[Tool]
+  plugins/        能力插件 loader(见约定表"插件缝")
   messages.py     消息块辅助(text_of 等)
 ```
 
-三条贯穿性约定（改代码前先懂这三条）：
+贯穿性约定（改代码前先懂）：
 
 | 约定 | 内容 |
 |---|---|
 | **单协议** | Anthropic 原生消息格式是唯一协议：模型吃它、会话存它、回放原样带回，零转换层 |
 | **错误即文本** | 工具崩溃不抛异常，统一转 `"错误: ..."` 塞回 tool_result，让模型自愈 |
-| **路径不做重写** | 文件工具与 execute 同一套文件系统视图（pi/hermes 同款）：绝对路径字面直用，相对路径相对 workdir；无虚拟根、无越界 jail，约定写进各文件工具 description（2026-10-31 移除虚拟根） |
+| **路径不做重写** | 文件工具与 execute 同一套文件系统视图（pi/hermes 同款）：绝对路径字面直用，相对路径相对 workdir；无虚拟根、无越界 jail，约定写进各文件工具 description |
 | **账本当场接** | 真实 usage 只在流式聚合时能拿到（message_start/message_delta），聚合时顺手记账；展示用真实值，est 粗估只做压缩触发兜底 |
-| **压缩是 postflight** | 对话完（每轮响应后）用真实 prompt_tokens 判定触发（hermes 语义）；防抖（降幅<10%连续两次停）和熔断（摘要失败即停）不可拆，防抖必须同口径 est vs est |
-| **MCP 快速认输** | pypi 不通的环境里 uvx 会卡几分钟:probe 整体 wait_for 15s、工具调用 60s,超时跳过;stdio 子进程 stderr 收 devnull(MCP_STDERR=1 透传);TUI 界面先起、MCP 后台补(build_agent(with_mcp=False) + add_tools),probe 失败的服务器进 failed_servers() 名单、TUI worker 每 60s 全量重试补挂(5 分钟窗口);工具名 `mcp__<server>__<tool>` 前缀(pi/hermes 同款)防跨服务器重名覆盖;except 不写 BaseException 防 Ctrl-C 被吞;配置在 `~/.zany/mcp_servers.json`(2026-11-03 从项目根挪入, 不进 git, 各 checkout 共享一份), 项目根同名文件已废弃 |
-| **工具防爆层** | 截断保头 40%+尾 60%(错误在头、新输出在尾)、execute 超长全量落盘给路径、ls/read 上限提示带精确值、edit BOM/CRLF 透明;行为熔断账本 `_Ledger`(重复读去重/edit 连败升级/同命令警告)挂在 Tool.ledger,压缩后由 `loop.reset_tool_ledger()` 清空 -- 都是提示不是阻断,把"你在循环里"喟给模型 |
-| **goal 模式** | `/goal <目标>` 设目标后宿主自动续跑(codex ext/goal 语义, 不要 judge)。状态真身是 tui 侧 dict(工具闭包共享), 每轮末尾 turn_finished 现场注入投影 user 消息(压缩免疫); update_goal(complete/blocked/paused) 申报状态; 预算 GOAL_MAX_TURNS(.env 可配, 默认 500) 耗尽转 paused, 打断/异常轮不续。落盘走会话 JSON 顶层 `goal` 键, /resume 捡回; 优先级: 排队用户文本 > cron > goal。测试 tests/test_goal.py |
-| **.env 不入库** | 2026-11-03 起改为密钥不入库：`.env` 已 `git rm --cached` 并 gitignore，键清单与默认值在 `env.example`（新机部署 `cp env.example .env` 后填密钥）；历史密钥已于 2026-11-03 用 filter-branch 全量重写清除（替换为 ***REMOVED***，bare 强推 + gc，三个 checkout 已重置）；密钥本身仍建议轮换 |
-| **TUI 对齐 Claude Code 观感** | 正文/标题 #d4d4d4, markdown 标题白粗体(覆盖点: `rich.themes.DEFAULT.styles` 单例 + `Style.parse()`, 改 DEFAULT_STYLES 字典无效——DEFAULT import 时已 copy；塞 str 会在 get_style 崩)；thinking 折叠 3 行(SHOW_THINKING 开全量)；轮末摘要行 `Thought for Xs, ran N tool calls`(dim, 前置空行)；Win 读键 ESC 分支只认 bracketed paste 标记与孤按 ESC, 不解析 VT 序列(\x1b[A 等; ConPTY/PyCharm 方向键实测走 \x00 两段扩展键, 当初的 VT 序列分支是错误归因产物, 2026-11-09 已删)；孤按 ESC 返回 ESC(picker 取消键)；扩展键两段 getwch 死锁(同日修): ConPTY 下方向键 = \x00 前缀+键码两段 getwch(老 console 是 \xe0), 凑齐分支若 return None 留到下圈, 下圈 _pend 非空跳过 getwch → 第二段卡在 getwch 内部缓存永远无人取, 全键冻结(ctrl+c 也卡 buffer) —— 前缀必须当场补取, 不阻塞；ZANY_TUI_TRACE=路径 开读键落盘探针穿哽 GUI 终端诊断；诊断可用 ConPTY 驱动 harness 程序化喂键复现；conhost 关 PROCESSED_INPUT 后 ctrl+v 无系统粘贴, 键层映射 PASTE_CLIP 走 ctypes 读剪贴板(HANDLE 必须设 64 位 restype, 截断即 access violation) |
-| **回合侧账 marks** | Thought/tool 计数是运行时局部变量, Anthropic 消息里没有 → 会话文件顶层 `marks=[{at, thought, tools}]`, at=回合结束时的消息条数做对齐锚；恢复回放按回合分组(真用户消息开组, tool_result 排除), 锚失配(压缩改写后)静默跳过不误导；老会话文件无 marks, 只有新回合才有 |
-| **品牌更名 2026-11-02** | miniagent → **zany-agent**（裸仓库 `/data01/tsn/repos/zany-agent.git`），CLI/品牌 = **zany**；运行时数据根 `~/.zany`（sessions/USER.md/skills，已从 ~/.miniagent 全量迁入，旧路径 `/config/.miniagent` 留软链过渡，待旧实例退出后删）；环境变量前缀 `ZANY_*`（如 ZANY_USER_MEMORY）；容器链路同步更名：容器 `tsn-zany-gateway`、镜像 `zany-gateway`/`zany-base`、宿主数据 `/data01/tsn/tsn-zany-gateway`、compose 变量 `ZANY_HOME`、镜像内用户 `user_zany`；工作目录同步更名：`miniagent-develop`→`zany-agent-develop`、`-bak`→`zany-agent-develop-bak`、`miniagent`→`zany-agent-old`（旧名均留软链过渡，待旧 TUI 进程退出后删） |
-| **能力插件缝** | `core/plugins/` loader(2026-11-04 落地):插件 = 一个 .py 暴露 `register(workdir)->list[Tool]`,`.env` 的 `ZANY_PLUGINS` 选用、失败降级不崩启动;重依赖走 pyproject extras(基座默认不装);`ZANY_PLUGINS_RELOAD=1` 时每次会话重建 reload(先清 pyc, 防同秒同大小改动拿旧字节码), 供 gateway 长驻“改文件→新会话即用新代码”。插件文件(browser/peers/restart)**只在 develop**(2026-11-05 用户定, master 是纯基座), master 只留 loader 与约定; develop 侧 `.env` 配 `ZANY_PLUGINS=browser,peers,restart`; core/ 层与 master 仅剩 serve.py(宿主件)。restart 插件的状态 `_pending_restart` 与工具同模块, tui/serve/gateway 轮末读 `core.plugins.restart.pending_restart` |
-| **npm 分发** | master 基座打 PyInstaller onefile 经 npm 裸包 `zany-agent` 分发(平台包 `zany-agent-{linux-x64,darwin-arm64}` optionalDependencies, codex 同款); 版本单源 pyproject.toml; frozen 路径约定: 只读资源 app_root()(_MEIPASS)、可写数据 data_dir()(~/.zany), 收口在 core/frozen.py; 内置 skills 随包分发(app_root()/skills 兼底源); 发布 = Actions release(workflow_dispatch), 流程 docs/npm-release.md |
-| **风格包插插拔** | 常驻行为(人格/规则)走 `styles/<name>.md` + `.env` 的 `PROMPT_PACKS`(逗号分隔), `agent.prompt_packs()` 全文拼进 SYSTEM_PROMPT(含 task 子代理)——常驻文本不能走 skills 的渐进披露(模型不会每轮自觉读全文)；按需技能仍走 `skills/` 渐进披露, 两条通道别混。不做通用 hook 系统, 等真实需求(skills/MCP 表达不了、loop.py 出现第 2 个特判)再抽 |
+| **压缩是 postflight** | 每轮响应后用真实 prompt_tokens 判定触发（hermes 语义）；防抖（降幅<10%连续两次停）和熔断（摘要失败即停）不可拆，防抖必须同口径 est vs est。另有超限兜底：413/超长 400 → 强压一次重试（run 限一次），preflight 用上次真实 tokens 判定覆盖不了单轮暴涨 |
+| **空回复重试** | 无 tool_use/无非空 text 即空，不 append 直接重试 3 次；耗尽落哨兵文本收尾。GLM/vLLM 网关偶发吐空 content assistant，不兜底=静默中断 |
+| **MCP 快速认输** | pypi 不通环境 uvx 会卡几分钟：probe 15s、工具调用 60s 超时跳过；TUI 先起、MCP 后台补挂（失败服务器每 60s 重试，5 分钟窗口）；工具名 `mcp__<server>__<tool>` 前缀防跨服务器重名；配置在 `~/.zany/mcp_servers.json`（不入 git，各 checkout 共享） |
+| **工具防爆层** | 输出截断 200k 字符保头 40%+尾 60%（错误在头、新输出在尾）、execute 超长全量落盘给路径、ls/read 上限提示带精确值、edit BOM/CRLF 透明；行为熔断账本 `_Ledger` 挂 Tool.ledger，压缩后 `loop.reset_tool_ledger()` 清空——都是提示不是阻断，把"你在循环里"喂给模型 |
+| **goal 模式** | `/goal <目标>` 设目标后宿主自动续跑(codex ext/goal 语义, 不要 judge)。状态真身是 tui 侧 dict, 每轮末尾注入投影 user 消息(压缩免疫); update_goal(complete/blocked/paused) 申报; 预算 GOAL_MAX_TURNS 耗尽转 paused, 打断/异常轮不续。落盘会话 JSON 顶层 `goal` 键; 优先级: 排队用户文本 > cron > goal |
+| **回合侧账 marks** | Thought/tool 计数是运行时局部变量 → 会话文件顶层 `marks=[{at, thought, tools}]`, at=回合结束时消息条数做对齐锚；锚失配(压缩改写后)静默跳过；老会话文件无 marks |
+| **密钥不入库** | `.env` 不进 git，键清单在 `env.example`（新机 `cp env.example .env` 后填密钥） |
+| **TUI 对齐 Claude Code 观感** | 正文/标题 #d4d4d4, markdown 标题白粗体(覆盖点: `rich.themes.DEFAULT.styles` 单例 + `Style.parse()`，改 DEFAULT_STYLES 字典无效)；thinking 折叠 3 行(SHOW_THINKING 开全量)；轮末摘要行 dim。Win 读键踩坑(getwch 两段扩展键/ctypes restype/ConPTY 喂键诊断)见 docs/troubleshooting.md，`ZANY_TUI_TRACE=路径` 开读键落盘探针 |
+| **插件缝** | `core/plugins/<name>.py` 暴露 `register(workdir)->list[Tool]`，`.env` 的 `ZANY_PLUGINS` 选用、失败降级不崩启动；`ZANY_PLUGINS_RELOAD=1` 每会话重建(先清 pyc)。插件文件只在 develop(master 是纯基座)，develop 配 `ZANY_PLUGINS=browser,peers,restart` |
+| **npm 分发** | PyInstaller onefile 经 npm 裸包 `zany-agent` 分发(平台包 optionalDependencies, codex 同款)；版本单源 pyproject.toml；frozen 路径收口 core/frozen.py(只读 app_root()、可写 data_dir()=~/.zany)；发布走 Actions workflow_dispatch，见 docs/npm-release.md |
+| **风格包** | 常驻行为走 `styles/<name>.md` + `.env` 的 `PROMPT_PACKS` 拼进 SYSTEM_PROMPT(含 task 子代理)——常驻文本不能走 skills 渐进披露，两条通道别混。不做通用 hook 系统，等真实需求再抽 |
 
-git 分支约定（用户定的）：master 的提交要同步到 develop —— master 上提交后，
-merge master 进 develop 再 push 两个分支；develop 上自己的提交不反向进 master。
-AGENTS.md 同样参与同步，两分支保持一致。
-develop 分支的独立工作目录在 `/data01/tsn/code/tsn_files/zany-agent-develop`（master 在
-`tsn_files/zany-agent`）：push 完要去那边 `git pull --ff-only` 同步到最新。
-**feishu gateway（gateway/ 目录 + docs/feishu-integration.md）只在 develop 实现，master 不加这些功能**（用户 2026-10-31 定）。
-
-分支文件归属（2026-11-06 develop 重建后定，防两分支漂移）：
-- 共享核心（core/ core/tui.py core/agent.py eval/ tests/ pyproject.toml docs/architecture.md）
-  **只在 master 改**，develop 靠 merge 拿 —— 在 develop checkout 里改共享文件 = 错误方向；
-- develop 独有（gateway/ core/plugins/ docker/ docs/feishu-integration.md
-  docs/codex-backend.md docs/multi-agent.md install_browser.sh .dockerignore）master 不收，
-  merge 时自动保留；
-- pyproject.toml 是共享文件但两分支不同：develop 侧有 `[project.optional-dependencies] feishu`（gateway 依赖，
-  master 改 pyproject 后 merge 时若此段无冲突也会被静默吃掉——2026-11-13 丢过一次导致容器/宿主网关全
-  起不来）。master 动过 pyproject 后 merge 进 develop，必须 `grep feishu pyproject.toml` 确认 extra 还在；
-- develop 开工前检查：`git fetch origin && git log HEAD..origin/master --oneline`
-  非空则先 merge origin/master 再干活（2026-11-06 事故根因：master 推进没及时 merge 进
-  develop，叠加 filter-branch 单侧重写 → unrelated histories，develop 被迫重建）；
-- filter-branch/历史重写类操作必须 master+develop 两分支同做同推，否则禁止。
+git 分支约定（用户定的）：
+- master 提交后 merge 进 develop 再 push 两个分支；develop 自己的提交不反向进 master；
+  develop 独立工作目录 `/data01/tsn/code/tsn_files/zany-agent-develop`，push 完去那边 `git pull --ff-only`。
+- **feishu gateway（gateway/ + docs/feishu-integration.md）只在 develop，master 不加**。
+- 文件归属防漂移：共享核心（core/ eval/ tests/ pyproject.toml docs/architecture.md）**只在 master 改**，
+  develop 靠 merge 拿；develop 独有（gateway/ core/plugins/ docker/ 等）master 不收。
+- pyproject.toml 两分支不同（develop 侧有 feishu extra）：master 动过 pyproject 后 merge 进 develop，
+  必须 `grep feishu pyproject.toml` 确认 extra 还在（被静默吃过一次，网关全起不来）。
+- develop 开工前：`git fetch origin && git log HEAD..origin/master --oneline` 非空先 merge 再干活。
+- filter-branch/历史重写必须 master+develop 同做同推，否则禁止。
 
 常用命令：
 
@@ -72,17 +62,16 @@ develop 分支的独立工作目录在 `/data01/tsn/code/tsn_files/zany-agent-de
 uv run core/tui.py              # TUI
 uv run core/tui.py -p "..."     # 无头单次
 uv run eval/main.py [name]      # 评测(用例在 eval/cases.jsonl)
-bash core/deploy/deploy.sh             # 一键部署(fresh clone → uv/依赖/浏览器内核/全局 zany 命令), 见 docs/deploy.md; Windows 用 core/deploy/deploy.cmd(Git Bash 跑 deploy.sh 也会自动转过去)
-bash release/build.sh      # 构建当前平台 frozen 二进制 → release/dist/zany-<target>(无参=自动平台)
-bash release/install.sh    # 把构建出的二进制装进系统 PATH(zany 命令, 覆盖源码版)
+bash core/deploy/deploy.sh      # 一键部署, 见 docs/deploy.md; Windows 用 deploy.cmd
+bash release/build.sh           # 构建当前平台 frozen 二进制 → release/dist/zany-<target>
+bash release/install.sh         # 装进系统 PATH(zany 命令, 覆盖源码版)
 ```
 
 ## 2. 借鉴来源（对照表）
 
 ### 2.1 deepagents（迁移起点 + SDK 参考）
 
-- 仓库：`/data01/tsn/code/deepagents`
-- SDK 本体：`libs/deepagents/deepagents/`（`middleware/`、`backends/`）
+- 仓库：`/data01/tsn/code/deepagents`，SDK 本体 `libs/deepagents/deepagents/`
 - 分析文档：`/data01/tsn/code/tsn_files/deepagents-架构说明/ARCHITECTURE-CAPABILITIES.md`
 
 | 借了什么 | 它在哪 | 我们在哪 |
@@ -91,78 +80,66 @@ bash release/install.sh    # 把构建出的二进制装进系统 PATH(zany 命�
 | edit_file 核心语义：count + 唯一性校验 + replace | `backends/filesystem.py:521` | `core/tools.py` `_edit` 精确分支 |
 | task 子代理语义：子代理无 task、只回传结论 | `middleware/subagents.py` | `core/subcore/agent.py` |
 | skills 渐进披露：清单常驻、SKILL.md 按需读 | `middleware/` skills 部分 | `core/skills.py` |
-| 反面参照：压缩用非破坏 offload(依赖 checkpointer) | `libs/deepagents/.../summarize` | 我们选**改写式**(`core/summarize.py`)，因 ~/.zany/sessions/*.json 直接覆盖写无 checkpointer |
+| 反面参照：压缩用非破坏 offload(依赖 checkpointer) | `libs/deepagents/.../summarize` | 我们选**改写式**(`core/summarize.py`)，因 sessions 直接覆盖写无 checkpointer |
 
-框架本身（LangGraph/middleware/checkpointer）已被**砍掉**——这是本项目的核心决策：依赖协议实现，不依赖编排框架。
+框架本身（LangGraph/middleware/checkpointer）已被**砍掉**——核心决策：依赖协议实现，不依赖编排框架。
 
 ### 2.2 dcode = deepagents-code（成品形态参照）
 
-- 位置：`/data01/tsn/code/deepagents/libs/code/deepagents_code/`（deepagents 仓库内的成品编码 Agent，`dcode` 命令）
+- 位置：`/data01/tsn/code/deepagents/libs/code/deepagents_code/`（`dcode` 命令）
 - 分析文档：`/data01/tsn/code/tsn_files/deepagents-架构说明/dcode-AGENT-能力与配置.md`
 
 | 借了什么 | 它在哪 | 我们在哪 |
 |---|---|---|
-| "一处装配"的成品组装方式(它 `core/agent.py:3605` create_deep_agent) | `libs/code/deepagents_code/core/agent.py` | `core/agent.py` 的 `build_agent()` |
+| "一处装配"的成品组装方式 | `libs/code/deepagents_code/core/agent.py` | `core/agent.py` 的 `build_agent()` |
 | 成品功能面：TUI + 会话恢复 + 模型配置 + task/skill/mcp | `tui/` `sessions.py` `model_config.py` | `core/tui.py`、`core/sessions.py`、`.env` |
-| markdown 渲染策略：流式期间就用 Textual MarkdownStream 增量写(0.1s 节流)+结束后整段重渲(绕 textual#6518) | `tui/widgets/messages.py:1436` AssistantMessage | 我们取折中：live 粗排纯文本(`_turn_renderable(md=False)`) + 定稿 rich Markdown 渲染(`core/tui.py:130`) |
-| 对照坑：textual 8.x RichLog.write 的 scroll_end(immediate=False) 与 virtual_size reflow 竞态，新内容常沉在视口下 —— ChatLog.write 覆盖后补 scroll_end(immediate=True) 兕底 | textual `_rich_log.py:282` | `core/tui.py` ChatLog 覆盖 write；.env SHOW_THINKING(默认关)控制 thinking 是否上屏，数据层始终全量记录 |
+| markdown 渲染：live 粗排纯文本 + 定稿整段重渲 | `tui/widgets/messages.py:1436` | `core/tui.py`（未用 Textual，取其折中思路） |
 
 ### 2.3 pi（工具与评测的直接借鉴源）
 
 - 仓库：`/data01/tsn/code/pi`（`@earendil-works/pi-coding-agent`，TS monorepo）
-- 工具代码：`packages/coding-agent/src/core/tools/`；引擎：`packages/agent/`
 - 分析文档：`/data01/tsn/code/tsn_files/pi-架构说明/PI-AGENT-工具架构分析.md`
 
 | 借了什么 | 它在哪 | 我们在哪 |
 |---|---|---|
-| **edit 批量编辑**：edits[] 全部对原文定位、按位置排序、重叠检测、逆序套用 | `coding-agent/src/core/tools/edit-diff.ts` | `core/tools.py` `_edit` 精确分支 |
-| **edit 模糊匹配兜底**：NFKC/智能引号/破折号/行尾空白归一化重试；命中后只回写覆盖到的行，未动行保留原字节 | 同上 `normalizeForFuzzyMatch` / `applyReplacementsPreservingUnchangedLines` | `core/tools.py` `_fuzzy` / `_overlay` |
-| 极简内核哲学：内置工具极少，其余外置(它 8 个内置+extension，我们 5 个内置+MCP/skills/task) | `packages/coding-agent/src/core/tools/` | 整体设计取向 |
-| 评测风格：JSONL 用例(seed/query/checks) → 判分 | `packages/evals/` | `eval/main.py` + `eval/cases.jsonl` |
-| markdown 渲染：pi-tui 自研 Markdown 组件(marked+highlight.js→ANSI)，每 delta 全量重渲、未闭合 fence 裁剪防闪烁 | `packages/tui/src/components/markdown.ts:236` | 对照参考：若流式也要渲染，先看 dcode 的 MarkdownStream 节流方案 |
+| **edit 批量编辑**：edits[] 对原文定位、排序、重叠检测、逆序套用 | `coding-agent/src/core/tools/edit-diff.ts` | `core/tools.py` `_edit` 精确分支 |
+| **edit 模糊匹配兜底**：NFKC/智能引号/破折号/行尾空白归一化重试；命中只回写覆盖行 | 同上 | `core/tools.py` `_fuzzy` / `_overlay` |
+| 极简内核哲学：内置工具极少，其余外置 | `packages/coding-agent/src/core/tools/` | 整体设计取向 |
+| 评测风格：JSONL 用例 → 判分 | `packages/evals/` | `eval/main.py` + `eval/cases.jsonl` |
 
 ### 2.4 PenguinHarness（平台型参照，非代码借鉴）
 
-- 仓库：`/data01/tsn/code/penguin-harness`（TS monorepo，`packages/core` 是引擎）
+- 仓库：`/data01/tsn/code/penguin-harness`
 - 分析文档：`/data01/tsn/code/tsn_files/penguin-harness-架构说明/ARCHITECTURE.md`
 
 | 对照点 | 它 | 我们 |
 |---|---|---|
-| 单协议贯穿 | OmniMessage 同时是接口/Trace/引擎消息 | Anthropic 原生消息同时是模型输入/落盘格式 |
-| 文件即状态 | `~/.penguin/data` 追加式 JSONL Trace | `~/.zany/sessions/*.json` 直接覆盖写 |
+| 单协议贯穿 | OmniMessage 三用 | Anthropic 原生消息同时是模型输入/落盘格式 |
+| 文件即状态 | 追加式 JSONL Trace | `~/.zany/sessions/*.json` 直接覆盖写 |
 | 引擎零业务 | core 不认识厂商 SDK 和 UI | `core/loop.py` 不区分工具来源、UI 用事件元组解耦 |
 
 ### 2.5 hermes-agent（进阶功能参照）
 
-- 仓库：`/data01/tsn/code/hermes-agent`（Python，个人 AI agent：CLI/消息网关/TUI/桌面同核）
-- 分析文档：`/data01/tsn/code/tsn_files/hermes-agent-analysis/`
+- 仓库：`/data01/tsn/code/hermes-agent`（Python），分析文档：`/data01/tsn/code/tsn_files/hermes-agent-analysis/`
 
 | 参照点 | 它在哪(约) |
 |---|---|
-| 技能自动更新(skills 生命周期/更新机制) | 见 `hermes-agent-analysis/09-skill-update-mechanisms.md` |
-| 看板/子代理协作(subagent + a2a + kanban) | 见 `hermes-agent-analysis/10-subagent-a2a-kanban-botmode.md` |
-| 定时任务(cron/scheduled jobs) | `cron/`、`gateway/` 相关模块 |
-| 窄腰设计:核心不加工具,能力走 CLI+skill/插件 | 根 `AGENTS.md` "The Footprint Ladder" |
+| 兜底语义(空回复重试/overflow 强压重试/打断收尾) | `agent/conversation_loop.py` |
+| 技能自动更新 | `hermes-agent-analysis/09-skill-update-mechanisms.md` |
+| 看板/子代理协作 | `hermes-agent-analysis/10-subagent-a2a-kanban-botmode.md` |
+| 定时任务 | `cron/`、`gateway/` 相关模块 |
+| 窄腰设计 | 根 `AGENTS.md` "The Footprint Ladder" |
 
 ### 2.6 codex（OpenAI codex-rs，Rust）
 
-- 仓库：`/data01/tsn/code/codex`（Rust, OpenAI）
-- codex-rs 按 crate 切分（core/exec/tui/protocol/skills/apply-patch...），看 crate 边界怎么划
-- `docs/` 的 config/agents_md 写法可参照
+- 仓库：`/data01/tsn/code/codex`——看 crate 边界怎么划；`docs/` 的 config/agents_md 写法可参照
 
 ## 3. 后续参考入口
 
-- 想改 loop / 压缩 / 工具行为 → 先读 `docs/architecture.md`；工具层差距与优化清单 → `docs/tools-comparison.md`（pi/hermes 逐工具对比 + 按性价比清单，2025-XX 排期用）
+- 想改 loop / 压缩 / 工具行为 → 先读 `docs/architecture.md`；工具层差距清单 → `docs/tools-comparison.md`
 - 想看 edit 模糊匹配的完整原版 → `/data01/tsn/code/pi/packages/coding-agent/src/core/tools/edit-diff.ts`
-- 想对比"带框架的同一套能力" → `/data01/tsn/code/deepagents/libs/deepagents/deepagents/`
 - 架构问答口径（面试/评审）→ `docs/interview-v2.md`
-- 插件化调研（master 基座 / develop 增量插件化，未实现）→ `docs/plugin-research.md`
-- 故障修复经验只记 `docs/troubleshooting.md`，不进本文件（本文件只放当前行为约定，用户定的）
+- 故障修复经验只记 `docs/troubleshooting.md`，不进本文件（本文件只放当前行为约定）
 
 ## 回复风格
-- 用户反馈(2026-10-29)：收尾别加"注意/建议"式叮嘱段落，结论给完即止
-
-## docker 同容器双网关(主备)
-主备两个网关跑在同一个容器里: 主代码 /opt/code/zany-primary(会话/记忆 /opt/data/zany-primary)、备代码 /opt/code/zany-standby(会话/记忆 /opt/data/zany-standby), 各连一个飞书 bot, 代码目录独立(改坏不连坐)。
-互相检查直接读对方目录(同容器天然可见): 主视角看备 = 代码 /opt/code/zany-standby、会话 /opt/data/zany-standby/sessions/; 备视角对称。ps 能看到双方进程。
-交换代码改动: 两边 origin 都指向共享仓库 /opt/repo, push/pull 交换; 该仓库独立演化, 与开发 checkout 无关。
+- 收尾别加"注意/建议"式叮嘱段落，结论给完即止
