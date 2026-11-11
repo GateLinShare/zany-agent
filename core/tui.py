@@ -1364,6 +1364,10 @@ class ZanyTui:
                     q.put(("line", f"[yellow]⚡ 已打断: {ev[1]}[/yellow]"))
                 elif kind == "compact_error":
                     q.put(("line", f"[dim](自动压缩已停用: {ev[1]})[/dim]"))
+                elif kind == "empty_retry":
+                    q.put(("line", f"[yellow]⚠ 模型返回空回复，重试 {ev[1]}/3[/yellow]"))
+                elif kind == "empty_giveup":
+                    q.put(("line", f"[yellow]✕ {ev[1]}[/yellow]"))
                 elif kind == "turn_limit":
                     q.put(("line", f"[yellow]■ 已达最大轮数 {ev[1]}, 本轮中止(继续发消息可接着干)[/yellow]"))
                 with self._seg_lock:
