@@ -26,7 +26,7 @@ uv sync   # dev 组带 pyinstaller
 uv run pyinstaller --onefile --name zany \
   --distpath "$DIST" --workpath "$WORK" \
   --collect-all textual --collect-all croniter \
-  --add-data "styles${SEP}styles" \
+  --add-data "styles${SEP}styles" --add-data "skills${SEP}skills" \
   --add-data "env.example${SEP}." \
   core/tui.py
 mv "$DIST/zany$EXE" "$DIST/zany-$TARGET$EXE"
