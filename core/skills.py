@@ -40,7 +40,7 @@ def _root(src: str, workdir: str) -> Path:
 
 def skill_section(
     workdir: str,
-    sources: tuple = ("/skills", "/.claude/skills", "/.agents/skills", "~/.zany/skills"),
+    sources: tuple = ("skills", ".claude/skills", ".agents/skills", "~/.zany/skills"),
 ) -> str:
     """返回 system prompt 的 skills 段;没有 skill 目录就返回空串。同名技能先到先得。"""
     bundled = app_root() / "skills"
