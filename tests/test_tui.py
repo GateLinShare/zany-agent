@@ -126,6 +126,31 @@ def main():
     ed2.handle("UNDO")
     assert ed2.lines[1] == "def"
 
+    # ---- Editor: 大粘贴折叠成占位符, 提交时展开(claude code 同款) ----
+    ed3 = Editor()
+    ed3.handle("PASTE_ON")
+    for ch in "abc\n\n\n末":  # bracketed paste 逐字符(含换行), 4 行 → 折叠
+        ed3.handle(ch)
+    ed3.handle("PASTE_OFF")
+    assert ed3.lines == ["[Pasted text #1 +3 lines]"] and ed3.pastes[1] == "abc\n\n\n末"
+    assert ed3.expand("前[Pasted text #1 +3 lines]后") == "前abc\n\n\n末后"
+    ed4 = Editor()  # 单行短粘贴: 原样展开不折叠
+    ed4.handle("PASTE_ON")
+    ed4.handle("x")
+    ed4.handle("PASTE_OFF")
+    assert ed4.lines == ["x"] and not ed4.pastes
+    ed5 = Editor()  # 单行超长(>800)也折叠, 无行数后缀
+    ed5.handle("PASTE_ON")
+    for _ in range(801):  # 真实路径: 逐字符进 paste 缓冲
+        ed5.handle("a")
+    ed5.handle("PASTE_OFF")
+    assert ed5.lines == ["[Pasted text #1]"] and len(ed5.pastes[1]) == 801
+    ed6 = Editor()  # ctrl+v 剪贴板路径同一入口
+    ed6.handle("PASTE_ON")
+    ed6.insert_paste("1\n2\n3\n4")
+    ed6.handle("PASTE_OFF")
+    assert ed6.lines == ["[Pasted text #1 +3 lines]"] and ed6.pastes[1] == "1\n2\n3\n4"
+
     # ---- 整轮管线: stream 事件 → 消息/marks/落盘/摘要行 ----
     t, agent, buf = make_tui(tmp)
     run_turn_sync(t)

@@ -702,11 +702,19 @@ class Term:
 class Editor:
     """lines[] 多行缓冲 + cy/cx 光标。UP/DOWN/CTRL_C/CTRL_D 由 TUI 层截获。"""
 
+    # 粘贴折叠阈值(claude code 同款): 换行 >2 或单段 >800 字符 → 存映射,
+    # 输入框只留 [Pasted text #N +X lines] 占位符, 提交时 expand() 还原
+    PASTE_MAX_NEWLINES = 2
+    PASTE_MAX_CHARS = 800
+
     def __init__(self):
         self.lines = [""]
         self.cy = 0
         self.cx = 0
         self.pasting = False
+        self.pastes: dict[int, str] = {}  # 占位符 id → 粘贴原文
+        self._paste_id = 0
+        self._paste_buf = ""
         self._undo: list[tuple[list[str], int, int]] = []
         self._last_kind = ""  # 连续同类编辑(连打/连删)合并为一个撤销批次
 
@@ -746,6 +754,28 @@ class Editor:
                 self.cy += 1
                 self.cx = 0
 
+    def insert_paste(self, s: str) -> None:
+        """粘贴入口: 小粘贴原样插入, 大粘贴折叠成占位符(内容存 self.pastes)。"""
+        s = s.replace("\r\n", "\n").replace("\r", "\n")
+        n = s.count("\n")
+        if n > self.PASTE_MAX_NEWLINES or len(s) > self.PASTE_MAX_CHARS:
+            self._paste_id += 1
+            self.pastes[self._paste_id] = s
+            # ponytail: 占位符被手工删/改后映射条目成孤儿, 几 KB 不清
+            label = (f"[Pasted text #{self._paste_id} +{n} lines]" if n
+                     else f"[Pasted text #{self._paste_id}]")
+            self.insert(label)
+        else:
+            self.insert(s)
+
+    def expand(self, text: str) -> str:
+        """提交前展开: 占位符替换回粘贴原文(函数替换防内容里反斜杠被吃)。"""
+        for pid, content in self.pastes.items():
+            text = re.sub(
+                rf"\[Pasted text #{pid}(?: \+\d+ lines)?\]",
+                lambda m, c=content: c, text)
+        return text
+
     def handle(self, key: str) -> None:
         if key == "PASTE_ON":
             self.pasting = True
@@ -753,10 +783,13 @@ class Editor:
             return
         if key == "PASTE_OFF":
             self.pasting = False
+            buf, self._paste_buf = self._paste_buf, ""
+            if buf:
+                self.insert_paste(buf)
             return
         if self.pasting:
             if len(key) == 1 or (key and key[0] not in "\x1b"):
-                self.insert(key)
+                self._paste_buf += key  # 先攒, PASTE_OFF 时统一定夺折叠/展开
             return
         if key == "\r":
             line = self.lines[self.cy]
@@ -1083,7 +1116,7 @@ class ZanyTui:
             t = self.term.paste_clipboard()
             if t:
                 self.ed.handle("PASTE_ON")
-                self.ed.insert(t)
+                self.ed.insert_paste(t)  # 与 bracketed paste 同一折叠判定
                 self.ed.handle("PASTE_OFF")
                 self._dirty = True
             return
@@ -1103,7 +1136,7 @@ class ZanyTui:
                 self.ed.handle("\r")  # 行尾反斜杠 = 软换行(claude 同款), 不提交
                 self._dirty = True
                 return
-            t = self.ed.text().strip()
+            t = self.ed.expand(self.ed.text()).strip()  # 占位符还原成粘贴原文
             self.ed.clear()
             self.hist_idx = -1
             if self._pending_pick is not None:
