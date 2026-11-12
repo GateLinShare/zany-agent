@@ -134,6 +134,16 @@ bash release/install.sh         # 装进系统 PATH(zany 命令, 覆盖源码版
 
 - 仓库：`/data01/tsn/code/codex`——看 crate 边界怎么划；`docs/` 的 config/agents_md 写法可参照
 
+### 2.7 claude-code（逆向产物，行为语义对照源）
+
+- 位置：`/data01/tsn/code/tsn_files/claude-code-逆向/rea-claude/js/$bunfs/root/`（bun 打包的 minified chunk，没有源码目录，行为靠 grep 字符串定位）
+- 已对照过的行为：粘贴折叠、输入框键盘语义（行尾反斜杠软换行）
+
+| 借了什么 | 它在哪 | 我们在哪 |
+|---|---|---|
+| 粘贴折叠：换行 >2 或 >800 字符 → 输入框留 `[Pasted text #N +X lines]` 占位符，原文存映射，提交时还原；0 换行无行数后缀 | `chunk-18hwfzwa.js`（onPaste 分支：`$9=800` 长度阈值、`hne=min(columns-10,2)` 行阈值，来自 `chunk-n770a3wm.js`）；`chunk-s61vbvea.js`（`$W` 计行 / `sie` 造占位符） | `core/tui.py` `Editor.insert_paste()/expand()`（ctrl+v 与 bracketed paste 同一入口） |
+| 超长粘贴截断：>10k 字符 → `[...Truncated text #N +X lines...]`，保头尾各 500 字符 | `chunk-18hwfzwa.js` `Xno()`（`n6e=1e4, IN=1000`） | 未借（提交展开后模型自己看全量，无需 UI 截断） |
+
 ## 3. 后续参考入口
 
 - 想改 loop / 压缩 / 工具行为 → 先读 `docs/architecture.md`；工具层差距清单 → `docs/tools-comparison.md`
