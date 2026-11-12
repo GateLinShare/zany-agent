@@ -1,6 +1,6 @@
 # zany 评测与自进化架构（benchmark + evolution loop）
 
-> 来源：PenguinHarness `agent-tuning` 插件机制（`/data01/tsn/code/penguin-harness/plugins/agent-tuning/skills/`），
+> 来源：PenguinHarness `agent-tuning` 插件机制（`/data01/tsn/code/github_code/penguin-harness/plugins/agent-tuning/skills/`），
 > 按 zany 的形态重设计。与 penguin 的核心差异一条：**评测对象是整个 zany**（一个 git commit：
 > 代码 + SYSTEM_PROMPT + skills + styles），不是某个 prompt/state 文件——进化改的就是仓库本身。
 
