@@ -1,7 +1,7 @@
 # 插件化调研：master 基座 + develop 工作插件化
 
 > **状态：调研，未实现。** 参照系是 DeepSeek 官方 agent harness（下称 DSH，本地
-> `/data01/tsn/code/deepseek-harness`，2026-11 检出）。回答两个问题：DSH 的
+> `/data01/tsn/code/github_code/deepseek-harness`，2026-11 检出）。回答两个问题：DSH 的
 > "万物即插件"怎么做的；zany-agent 该抄哪部分——把 master 当基座、develop 的增量做成插件。
 > DSH 部分结论经抽查核对（cordis 行数 / workspace 包数 / architecture.md 原文）。
 

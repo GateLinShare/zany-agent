@@ -73,7 +73,7 @@ bash release/install.sh         # 装进系统 PATH(zany 命令, 覆盖源码版
 
 ### 2.1 deepagents（迁移起点 + SDK 参考）
 
-- 仓库：`/data01/tsn/code/deepagents`，SDK 本体 `libs/deepagents/deepagents/`
+- 仓库：`/data01/tsn/code/github_code/deepagents`，SDK 本体 `libs/deepagents/deepagents/`
 - 分析文档：`/data01/tsn/code/tsn_files/deepagents-架构说明/ARCHITECTURE-CAPABILITIES.md`
 
 | 借了什么 | 它在哪 | 我们在哪 |
@@ -88,7 +88,7 @@ bash release/install.sh         # 装进系统 PATH(zany 命令, 覆盖源码版
 
 ### 2.2 dcode = deepagents-code（成品形态参照）
 
-- 位置：`/data01/tsn/code/deepagents/libs/code/deepagents_code/`（`dcode` 命令）
+- 位置：`/data01/tsn/code/github_code/deepagents/libs/code/deepagents_code/`（`dcode` 命令）
 - 分析文档：`/data01/tsn/code/tsn_files/deepagents-架构说明/dcode-AGENT-能力与配置.md`
 
 | 借了什么 | 它在哪 | 我们在哪 |
@@ -99,7 +99,7 @@ bash release/install.sh         # 装进系统 PATH(zany 命令, 覆盖源码版
 
 ### 2.3 pi（工具与评测的直接借鉴源）
 
-- 仓库：`/data01/tsn/code/pi`（`@earendil-works/pi-coding-agent`，TS monorepo）
+- 仓库：`/data01/tsn/code/github_code/pi`（`@earendil-works/pi-coding-agent`，TS monorepo）
 - 分析文档：`/data01/tsn/code/tsn_files/pi-架构说明/PI-AGENT-工具架构分析.md`
 
 | 借了什么 | 它在哪 | 我们在哪 |
@@ -111,7 +111,7 @@ bash release/install.sh         # 装进系统 PATH(zany 命令, 覆盖源码版
 
 ### 2.4 PenguinHarness（平台型参照，非代码借鉴）
 
-- 仓库：`/data01/tsn/code/penguin-harness`
+- 仓库：`/data01/tsn/code/github_code/penguin-harness`
 - 分析文档：`/data01/tsn/code/tsn_files/penguin-harness-架构说明/ARCHITECTURE.md`
 
 | 对照点 | 它 | 我们 |
@@ -122,7 +122,7 @@ bash release/install.sh         # 装进系统 PATH(zany 命令, 覆盖源码版
 
 ### 2.5 hermes-agent（进阶功能参照）
 
-- 仓库：`/data01/tsn/code/hermes-agent`（Python），分析文档：`/data01/tsn/code/tsn_files/hermes-agent-analysis/`
+- 仓库：`/data01/tsn/code/github_code/hermes-agent`（Python），分析文档：`/data01/tsn/code/tsn_files/hermes-agent-analysis/`
 
 | 参照点 | 它在哪(约) |
 |---|---|
@@ -134,7 +134,7 @@ bash release/install.sh         # 装进系统 PATH(zany 命令, 覆盖源码版
 
 ### 2.6 codex（OpenAI codex-rs，Rust）
 
-- 仓库：`/data01/tsn/code/codex`——看 crate 边界怎么划；`docs/` 的 config/agents_md 写法可参照
+- 仓库：`/data01/tsn/code/github_code/codex`——看 crate 边界怎么划；`docs/` 的 config/agents_md 写法可参照
 
 ### 2.7 claude-code（逆向产物，行为语义对照源）
 
@@ -149,7 +149,7 @@ bash release/install.sh         # 装进系统 PATH(zany 命令, 覆盖源码版
 ## 3. 后续参考入口
 
 - 想改 loop / 压缩 / 工具行为 → 先读 `docs/architecture.md`；工具层差距清单 → `docs/tools-comparison.md`
-- 想看 edit 模糊匹配的完整原版 → `/data01/tsn/code/pi/packages/coding-agent/src/core/tools/edit-diff.ts`
+- 想看 edit 模糊匹配的完整原版 → `/data01/tsn/code/github_code/pi/packages/coding-agent/src/core/tools/edit-diff.ts`
 - 故障修复经验只记 `docs/troubleshooting.md`，不进本文件（本文件只放当前行为约定）
 
 ## 回复风格
