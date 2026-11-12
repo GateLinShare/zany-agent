@@ -271,7 +271,7 @@ def maybe_summarize(model, messages, prompt_tokens=None,
 - **熔断**(hermes 600s 冷却的简化):摘要 LLM 失败一次就停用本会话自动压缩,
   防每轮重试拖垮对话;失败不炸轮次(错误即文本),发 `compact_error` 事件。
 
-## 7. MCP(core/mcp.py)
+## 7. MCP(core/mcp_loader.py)
 
 读 `~/.zany/mcp_servers.json`(运行时数据根,不进 git,各 checkout 共享一份;
 2026-11-03 从项目根挪入),stdio / http 双支持,单次连接即用即走,每台服务器
@@ -375,7 +375,7 @@ cat prompt.txt | uv run core/tui.py -p    # prompt 走 stdin
 插件 = 一个 .py 暴露 `register(workdir) -> list[Tool]`,没有基类 / manifest /
 registry —— `.env` 的 `ZANY_PLUGINS` 开关 + Python import 就是全部仪式:
 
-- 降级:import 或 register 失败 → 打印跳过,不崩启动(与 core/mcp.py 同款);
+- 降级:import 或 register 失败 → 打印跳过,不崩启动(与 core/mcp_loader.py 同款);
 - 重依赖走 pyproject extras(master 默认不装,import 失败即该工具缺席);
 - 热更:`ZANY_PLUGINS_RELOAD=1` 时每次 load_plugins 先清 pyc 再 reload(防同秒
   同大小改动拿旧字节码),供 gateway 长驻宿主"改插件文件 → 新会话即用新代码";

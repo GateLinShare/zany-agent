@@ -19,7 +19,8 @@ core/
   subcore/agent.py     task 子代理(递归在构造处掐死)
   summarize.py    上下文压缩(改写式, 窗口×比例触发默认 120k, 保尾 20 条)
   sessions.py     会话持久化:Anthropic 原生 dict 直接 JSON 落盘
-  mcp.py          MCP 工具加载(单次连接即用即走)
+  mcp_loader.py   MCP 工具加载(单次连接即用即走; 不能叫 mcp.py——会撞 mcp SDK 包名,
+                  python core/tui.py 直启时 core/ 进 sys.path[0] 就把自己 import 成了 SDK)
   skills.py       skills 清单注入 system prompt(渐进披露; 项目 skills/、.claude/skills、.agents/skills + 全局 ~/.zany/skills, 同名先到先得去重)
   plugins/        能力插件 loader(见约定表"插件缝")
   messages.py     消息块辅助(text_of 等)
@@ -35,7 +36,8 @@ core/
 | **账本当场接** | 真实 usage 只在流式聚合时能拿到（message_start/message_delta），聚合时顺手记账；展示用真实值，est 粗估只做压缩触发兜底 |
 | **压缩是 postflight** | 每轮响应后用真实 prompt_tokens 判定触发（hermes 语义）；防抖（降幅<10%连续两次停）和熔断（摘要失败即停）不可拆，防抖必须同口径 est vs est。另有超限兜底：413/超长 400 → 强压一次重试（run 限一次），preflight 用上次真实 tokens 判定覆盖不了单轮暴涨 |
 | **空回复重试** | 无 tool_use/无非空 text 即空，不 append 直接重试 3 次；耗尽落哨兵文本收尾。GLM/vLLM 网关偶发吐空 content assistant，不兜底=静默中断 |
-| **MCP 快速认输** | pypi 不通环境 uvx 会卡几分钟：probe 15s、工具调用 60s 超时跳过；TUI 先起、MCP 后台补挂（失败服务器每 60s 重试，5 分钟窗口）；工具名 `mcp__<server>__<tool>` 前缀防跨服务器重名；配置在 `~/.zany/mcp_servers.json`（不入 git，各 checkout 共享） |
+| **MCP 快速认输** | pypi 不通环境 uvx 会卡几分钟：probe 15s、工具调用 60s 超时跳过；TUI 先起、MCP 后台补挂（失败服务器每 60s 重试，5 分钟窗口，失败落盘 ~/.zany/mcp-errors.log）；工具名 `mcp__<server>__<tool>` 前缀防跨服务器重名；配置在 `~/.zany/mcp_servers.json`（不入 git，各 checkout 共享）。rea-dispatcher 代码在 develop 仓 `mcp-servers/rea-dispatcher/`（克隆即用，见 docs/mcp-setup.md；develop 独有，master 不收） |
+| **模块名避让** | core/ 下文件名禁止叫 mcp.py、json.py 这类与三方包同名——`python core/tui.py` 直启时 core/ 进 sys.path[0]，会把自己 import 成 SDK（mcp.py 改名 mcp_loader.py 的教训，2026-11-12） |
 | **工具防爆层** | 输出截断 200k 字符保头 40%+尾 60%（错误在头、新输出在尾）、execute 超长全量落盘给路径、ls/read 上限提示带精确值、edit BOM/CRLF 透明；行为熔断账本 `_Ledger` 挂 Tool.ledger，压缩后 `loop.reset_tool_ledger()` 清空——都是提示不是阻断，把"你在循环里"喂给模型 |
 | **goal 模式** | `/goal <目标>` 设目标后宿主自动续跑(codex ext/goal 语义, 不要 judge)。状态真身是 tui 侧 dict, 每轮末尾注入投影 user 消息(压缩免疫); update_goal(complete/blocked/paused) 申报; 预算 GOAL_MAX_TURNS 耗尽转 paused, 打断/异常轮不续。落盘会话 JSON 顶层 `goal` 键; 优先级: 排队用户文本 > cron > goal |
 | **回合侧账 marks** | Thought/tool 计数是运行时局部变量 → 会话文件顶层 `marks=[{at, thought, tools}]`, at=回合结束时消息条数做对齐锚；锚失配(压缩改写后)静默跳过；老会话文件无 marks |

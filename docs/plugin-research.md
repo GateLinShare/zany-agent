@@ -96,7 +96,7 @@ develop 独有 58 个提交（含大量 merge），文件级增量 35 个文件 
 
 **master 已有的"缝"盘点**（关键：不需要新造的）：
 
-- `build_agent(workdir, with_mcp=True)` + `core/mcp.py`：外部工具进程化通道已在
+- `build_agent(workdir, with_mcp=True)` + `core/mcp_loader.py`：外部工具进程化通道已在
   （MCP 后台补挂），任何"多一个工具"的需求理论上都能走 MCP 外挂而非改内核。
 - `[project.optional-dependencies]`：依赖级插件已是 uv extras 标准形态（develop 的
   feishu extra 就是）。

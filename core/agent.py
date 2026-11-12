@@ -7,7 +7,7 @@
     core/subagent.py  task 子代理
     core/summarize.py 上下文压缩
     core/skills.py    skills 渐进披露
-    core/mcp.py       MCP 工具加载
+    core/mcp_loader.py MCP 工具加载
     core/sessions.py  会话持久化
     core/messages.py  消息格式小工具
 
@@ -57,7 +57,7 @@ else:
     raise FileNotFoundError(f"缺 {ENV_PATH}: cp env.example .env 后填密钥")
 
 from core.loop import Agent, user_memory_path
-from core.mcp import load_mcp_tools
+from core.mcp_loader import load_mcp_tools
 from core.messages import text_of  # noqa: F401  (tui/eval 从这取)
 from core.model import ChatModel, make_client
 from core.plugins import load_plugins
