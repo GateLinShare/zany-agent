@@ -10,6 +10,7 @@ import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 
 from .tools import Tool
@@ -82,7 +83,8 @@ async def _call(spec: dict, tool_name: str, args: dict):
     async with _server_cm(spec) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
-            return await asyncio.wait_for(session.call_tool(tool_name, args), CALL_TIMEOUT)
+            # 单服务器可配 "timeout" 覆盖(秒); REA 这类深度逆向调用要几分钟
+            return await asyncio.wait_for(session.call_tool(tool_name, args), spec.get("timeout", CALL_TIMEOUT))
 
 
 def _make_tool(server_name: str, spec: dict, raw) -> Tool:
@@ -138,7 +140,11 @@ def load_mcp_tools() -> list[Tool]:
             except Exception as e:  # 单台失败不拖垮其余
                 _failed.add(name)
                 errs = getattr(e, "exceptions", None) or [e]
-                print(f"(MCP 服务器 {name} 加载失败, 跳过: {'; '.join(repr(x) for x in errs)})")
+                msg = "; ".join(repr(x) for x in errs)[:500]
+                print(f"(MCP 服务器 {name} 加载失败, 跳过: {msg})")
+                # print 会被 TUI 的 rich 帧搅碎, 留一份可读的
+                with open(Path.home() / ".zany" / "mcp-errors.log", "a", encoding="utf-8") as f:
+                    f.write(f"{time.strftime('%m-%d %H:%M:%S')} {name}: {msg}\n")
         return tools
 
     try:

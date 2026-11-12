@@ -4,7 +4,7 @@
 没有基类 / manifest / registry —— .env 的 ZANY_PLUGINS 开关 + Python import 就是全部仪式。
 
 - 开关:ZANY_PLUGINS=browser,peers(逗号分隔;空/不设 = 纯基座)
-- 降级:import 或 register 失败 → 打印跳过,不崩启动(与 core/mcp.py 同款风格)
+- 降级:import 或 register 失败 → 打印跳过,不崩启动(与 core/mcp_loader.py 同款风格)
 - 依赖:插件的重依赖走 pyproject extras(如 browser = playwright),master 默认不装,
   import 失败即降级为该工具缺席
 - 热更(档 1):ZANY_PLUGINS_RELOAD=1 时每次 load_plugins 重新 reload 模块,供

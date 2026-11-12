@@ -34,7 +34,7 @@ from rich.text import Text
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # 直接跑本文件时补仓库根, core 包可见
 from core.agent import build_agent, text_of
 from core.messages import user_content, est_tokens, result_text
-from core.mcp import config_stamp
+from core.mcp_loader import config_stamp
 from core.sessions import (
     list_sessions,
     load_session_data,
@@ -949,7 +949,7 @@ class ZanyTui:
             print(f"(继续对话: zany -r {self.sess_path.stem})", file=sys.stderr)
 
     def _mcp_worker(self) -> None:
-        from core.mcp import failed_servers, load_mcp_tools
+        from core.mcp_loader import failed_servers, load_mcp_tools
         for _ in range(6):
             try:
                 tools = load_mcp_tools()
