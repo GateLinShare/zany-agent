@@ -40,7 +40,7 @@ class FakeAgent:
         self.usage["last_in"] = 1234
         yield ("thinking", "step one")
         yield ("text", "你好世界")
-        yield ("tool_start", "t1", "read_file")
+        yield ("tool_start", "t1", "read_file", {"path": "a.py"})
         yield ("tool_result", "t1", "read_file", '{"path": "a.py"}', "ok")
         yield ("text", "done")
         yield ("usage", 1234, 5)

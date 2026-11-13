@@ -123,7 +123,7 @@ class Agent:
 
     def stream(self, messages: list[dict]):
         """跑一轮完整对话(可能多轮工具循环), 原地追加 messages, yield 事件:
-        ("thinking", delta) / ("text", delta) / ("tool_start", id, name)
+        ("thinking", delta) / ("text", delta) / ("tool_start", id, name, input)
         / ("tool_result", id, name, input_json, output)
         / ("usage", turn_in, turn_out)          每次模型响应的真实 token
         / ("compact", before, after)            触发了上下文压缩
@@ -275,7 +275,7 @@ class Agent:
             if not calls:
                 return
             for call in calls:  # 批内全部先报 start, 非线程绑定的即将并行齐发
-                yield ("tool_start", call["id"], call["name"])
+                yield ("tool_start", call["id"], call["name"], call.get("input", {}))
             results = []
             for call, name, args, out in self._run_batch(calls):
                 results.append({"type": "tool_result", "tool_use_id": call["id"], "content": out})

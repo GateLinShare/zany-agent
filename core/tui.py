@@ -106,17 +106,21 @@ def _clip(s: str, n: int = CMD_CLIP) -> str:
     return s + "…"
 
 
+def _tool_detail(name: str, args: dict) -> str:
+    """工具参数摘要: execute/task 取全文, 其余取路径(长则保尾)"""
+    if name == "execute":
+        return str(args.get("command", ""))
+    if name == "task":
+        return str(args.get("prompt", ""))
+    p = str(args.get("path", ""))
+    return ("..." + p[-32:]) if len(p) > 35 else p
+
+
 def tool_line(name: str, args: dict, dur: float, output: str) -> str:
     from rich.markup import escape
 
     emoji, verb = TOOL_VERB.get(name, ("⚡", name))
-    if name == "execute":
-        detail = _clip(escape(str(args.get("command", ""))))
-    elif name == "task":
-        detail = _clip(escape(str(args.get("prompt", ""))))
-    else:
-        p = escape(str(args.get("path", "")))
-        detail = ("..." + p[-32:]) if len(p) > 35 else p
+    detail = _clip(escape(_tool_detail(name, args)))
     err = output.startswith("错误:")
     detail = f"[red]{escape(detail)}[/red]" if err else escape(detail)
     fail = "[red]× 失败[/red]" if err else ""  # × 而非 ✗: 同 ❯/✻, dingbat 区无字形
@@ -908,6 +912,7 @@ class ZanyTui:
         self._pick_idx = 0  # picker 高亮行(legacy 弹层同交互: ↑↓ 选, 回车恢复, esc 取消)
         # 活动段共享状态(worker 写 / 主循环读)
         self._seg = {"think": "", "text": ""}
+        self._inflight: dict[str, tuple] = {}  # 在途工具 id -> (name, args), 活动区实时显示
         self._seg_lock = threading.Lock()
         self._q: "queue.Queue[tuple]" = queue.Queue()
         self._th: threading.Thread | None = None
@@ -1021,6 +1026,11 @@ class ZanyTui:
             verb = _SPINNER_VERBS[self._verb]
             secs = int(time.monotonic() - self._turn_t0)
             toks = fmt_tokens(max(1, self._out_chars // 3))
+            with self._seg_lock:  # 在途工具快照: claude 语义, 工具开始即显示
+                inflight = list(self._inflight.values())
+            for name, args in inflight:  # 每在途工具一行, 参数吃到行宽(claude 同款)
+                emoji, verb = TOOL_VERB.get(name, ("⚡", name))
+                rows.append(f"{C_DIM}┊ {fr} {emoji} {verb} {_clip(_tool_detail(name, args), max(20, w - 22))}{C_RESET}")
             rows.append(f"{C_SPIN}{fr}{C_RESET} {C_DIM}{verb}… (ctrl+c 打断 · ~{toks} tok · {secs}s){C_RESET}")
         # 会话选择列表(legacy 弹层替身): 高亮行品红, 其余默认亮色
         if self._pending_pick is not None:
@@ -1379,10 +1389,14 @@ class ZanyTui:
                     self._out_chars = len(text_buf)
                 elif kind == "tool_start":
                     tool_t0[ev[1]] = time.monotonic()
+                    with self._seg_lock:
+                        self._inflight[ev[1]] = (ev[2], ev[3] or {})
                 elif kind == "tool_result":
                     flush_seg()
                     n_tools += 1
                     _, _id, name, input_json, output = ev
+                    with self._seg_lock:
+                        self._inflight.pop(_id, None)
                     dur = time.monotonic() - tool_t0.pop(_id, time.monotonic())
                     try:
                         args = json.loads(input_json)
