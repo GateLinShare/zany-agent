@@ -41,6 +41,7 @@ class Tool:
     run: Callable[[dict], "str | list"]  # 入参 dict -> 结果文本(或 read_file 图片分支返回 block 数组); 错误也返回文本, 不抛异常
     ledger: Any | None = None   # 行为熔断账本(仅内置工具); loop 在压缩后调 reset()
     kill: Callable[[], None] | None = None  # 打断废弃时的强杀钩子(execute: 杀进程组)
+    thread_bound: bool = False  # 必须固定线程执行(playwright sync 这类): 走单 worker 队列串行, 不并行
 
     def schema(self) -> dict:
         return {"name": self.name, "description": self.description, "input_schema": self.input_schema}

@@ -11,9 +11,11 @@ import json
 import os
 import queue
 import threading
+import time
 from pathlib import Path
 
 from .messages import result_text, tool_uses
+from .tools import Tool  # 仅类型注解(_safe_run); 工具实例由构造注入
 from .summarize import maybe_summarize
 
 MAX_TURNS = 40  # 单次 run 的工具轮数上限, 防模型打转烧钱
@@ -272,15 +274,10 @@ class Agent:
             calls = tool_uses(messages[-1])
             if not calls:
                 return
+            for call in calls:  # 批内全部先报 start, 非线程绑定的即将并行齐发
+                yield ("tool_start", call["id"], call["name"])
             results = []
-            for call in calls:
-                name, args = call["name"], call.get("input", {})
-                yield ("tool_start", call["id"], name)
-                if self._interrupt_requested:  # 检查点 c: 打断后批内剩余请求直接废弃
-                    out = f"错误: {self._interrupt_requested}, 本次执行未完成"
-                else:
-                    tool = self.tools.get(name)
-                    out = f"错误: 未知工具 {name}" if tool is None else self._dispatch(tool, args)
+            for call, name, args, out in self._run_batch(calls):
                 results.append({"type": "tool_result", "tool_use_id": call["id"], "content": out})
                 # UI 侧永远收文本; 图片分支的 block 数组原样进 messages(模型看图, UI 看说明文字)
                 yield ("tool_result", call["id"], name, json.dumps(args, ensure_ascii=False), result_text(out))
@@ -293,16 +290,72 @@ class Agent:
         messages.append({"role": "assistant", "content": [{"type": "text", "text": note}]})
         yield ("turn_limit", self.max_turns)
 
+    @staticmethod
+    def _safe_run(tool: Tool, args: dict) -> str:
+        """工具执行 + 错误即文本(并行线程与单 worker 共用)。"""
+        try:
+            return tool.run(args)
+        except AbortError:  # 用户取消 ≠ 工具故障, 文案对齐打断收尾
+            return "错误: 用户取消, 本次执行未完成"
+        except Exception as e:  # 工具崩了也回文本, 让模型重试
+            return f"错误: {e}"
+
+    def _run_batch(self, calls: list) -> list:
+        """同批 tool_use 派发, 返回 [(call, name, args, out)] 按批序(与 tool_use 对齐)。
+
+        非 thread_bound 工具各起一线程并行跑 —— 同批多个慢工具(task 子代理/MCP/
+        web_search)批内总时长从 sum 变 max, 单工具退化为原语义。thread_bound
+        工具(browser/playwright)逐个走单 worker 队列, 线程身份恒定(原语义),
+        与并行组同时推进。打断时对未完成调用统一 kill 并废弃填错误文案,
+        线程自己跑完丢弃(同 _dispatch 的废弃语义)。
+        ponytail: 并行不加写锁 —— 内置文件工具毫秒级, 同批多写靠模型按路径
+        错开; 真撞了再给内置工具加按路径串行。"""
+        results: list = [None] * len(calls)
+        pending: list = []  # (idx, call, name, box, thread)
+        for i, call in enumerate(calls):
+            name, args = call["name"], call.get("input", {})
+            if self._interrupt_requested:  # 检查点 c: 打断后批内剩余请求直接废弃
+                results[i] = (call, name, args, f"错误: {self._interrupt_requested}, 本次执行未完成")
+                continue
+            tool = self.tools.get(name)
+            if tool is None:
+                results[i] = (call, name, args, f"错误: 未知工具 {name}")
+            elif tool.thread_bound:  # 线程绑定: 恒定 worker 串行, 保持原语义
+                results[i] = (call, name, args, self._dispatch(tool, args))
+            else:
+                box: dict = {"done": threading.Event()}
+
+                def _spawn(tool=tool, args=args, box=box):
+                    try:
+                        box["out"] = self._safe_run(tool, args)
+                    finally:
+                        box["done"].set()
+
+                t = threading.Thread(target=_spawn, daemon=True, name=f"zany-tool-{name}")
+                pending.append((i, call, name, box, t))
+                t.start()
+
+        while pending and not all(b["done"].is_set() for *_, b, _ in pending) \
+                and not self._interrupt_requested:
+            time.sleep(0.1)
+        if self._interrupt_requested:  # 打断: 未完成的统一废弃(kill 钩子能杀就杀)
+            for _, _, name, box, _ in pending:
+                if not box["done"].is_set() and self.tools[name].kill:
+                    with contextlib.suppress(Exception):
+                        self.tools[name].kill()
+        for i, call, name, box, _ in pending:
+            if results[i] is None:
+                done = box["done"].is_set()
+                results[i] = (call, name, call.get("input", {}),
+                              box["out"] if done else f"错误: {self._interrupt_requested}, 本次执行未完成")
+        return results
+
     def _tool_loop(self) -> None:
         """工具 worker 主循环: 串行执行派来的 (tool, args), 结果放 box。"""
         while True:
             tool, args, box = self._tool_q.get()
             try:
-                box["out"] = tool.run(args)
-            except AbortError:  # 用户取消 ≠ 工具故障, 文案对齐打断收尾
-                box["out"] = "错误: 用户取消, 本次执行未完成"
-            except Exception as e:  # 工具崩了也回文本, 让模型重试
-                box["out"] = f"错误: {e}"
+                box["out"] = self._safe_run(tool, args)
             finally:
                 box["done"].set()
 

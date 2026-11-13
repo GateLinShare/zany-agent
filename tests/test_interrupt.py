@@ -88,16 +88,18 @@ def test_interrupt_abandons_inflight_tool():
     assert "未完成" in tr["content"]
 
 
-def test_interrupt_discards_remaining_calls():
+def test_interrupt_discards_all_calls():
+    """并行派发语义: 同批 tool_use 同时启动, 打断时全部在途调用一起废弃。
+    (串行时代是"剩余未启动的不再执行"; 并行后已同时启动, 改验全废弃+配对)"""
     runs = []
     agent = Agent(FakeModel([tool_turn(("t1", "slow"), ("t2", "slow"))]), "",
                   [slow_tool(runs)], tempfile.mkdtemp())
     events, msgs, elapsed = run_and_interrupt(agent)
     assert elapsed < 2
-    assert len(runs) == 1, "同批剩余工具请求不应再执行"
+    assert len(runs) == 2, "同批工具并行全部启动"
     ids = [c["tool_use_id"] for c in msgs[-1]["content"]]
     assert ids == ["t1", "t2"], "废弃请求也要补 tool_result 保持配对"
-    assert all("未完成" in c["content"] for c in msgs[-1]["content"])
+    assert all("未完成" in c["content"] for c in msgs[-1]["content"]), "全部在途调用废弃"
 
 
 def test_execute_killed_on_interrupt():
