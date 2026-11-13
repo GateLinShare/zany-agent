@@ -1,0 +1,30 @@
+#!/bin/sh
+# stable 仓物理防线(方案 §10-2): 历史只增不改, 回滚锚点不可篡改。
+# stdin 参数: $1=ref $2=old $3=new。放行: ff 分支更新/新增 tag/新分支; 拒: 非 ff/删 master/删改 tag。
+ref=$1; old=$2; new=$3
+zero=0000000000000000000000000000000000000000
+
+case "$ref" in
+    refs/tags/*)
+        if [ "$new" = "$zero" ]; then
+            echo "拒绝: tag 不可删除(回滚锚点不可篡改)" >&2; exit 1
+        fi
+        if [ "$old" != "$zero" ]; then
+            echo "拒绝: tag 不可移动" >&2; exit 1
+        fi
+        exit 0 ;;
+esac
+
+if [ "$new" = "$zero" ]; then
+    if [ "$ref" = "refs/heads/master" ] || [ "$ref" = "refs/heads/develop" ]; then
+        echo "拒绝: 主分支不可删除" >&2; exit 1
+    fi
+    exit 0  # evolve 候选分支用完可删
+fi
+
+if [ "$old" != "$zero" ]; then
+    if ! git merge-base --is-ancestor "$old" "$new" 2>/dev/null; then
+        echo "拒绝: 非 fast-forward 推送(stable 历史只增不改)" >&2; exit 1
+    fi
+fi
+exit 0

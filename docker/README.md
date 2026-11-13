@@ -111,10 +111,6 @@ docker exec tsn-zany-gateway git -C /opt/code/zany-standby pull
 | 拉代码 fatal /opt/repo not a repository | 老 clone 的 remote 指旧路径 | `git -C /opt/code/<x> remote set-url origin /opt/repo` |
 | 进程反复退出 3s 拉起 | 看日志具体异常(.env 缺项/依赖缺失) | `docker logs tsn-zany-gateway` |
 
-## 7. 与 hermes-space 部署的差异(为什么砍掉)
+## 7. 自进化环境(可选)
 
-| hermes-space | 这里 | 原因 |
-|---|---|---|
-| s6-overlay 监督树(main/dashboard/多 profile gateway) | tini + entrypoint 守护循环 | 双进程够了, 不上 s6 |
-| 双架构 amd64+arm64 | 仅 amd64 | 部署目标单机 x86 |
-| hermes-base-s6 底座(Node/Playwright 全家桶, 2.9GB) | slim + 按需系统库(~600MB) | 干净轻量 |
+想在网关环境里加自进化 M1(supervisor worker + 进化仓): 见 `supervisor/README.md`, 一键 `bash supervisor/bootstrap.sh`。

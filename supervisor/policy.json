@@ -1,0 +1,11 @@
+{
+  "diff_max_lines": 800,
+  "canary_hours": {"a": 6, "b": 6, "c": 24, "d": 24, "e": 6},
+  "circuit_break": 3,
+  "baseline_tag_prefix": "stable/",
+  "audit": {
+    "forbidden_read_patterns": ["eval/benchmarks", "rubric", "eval/main.py", "scoreboard"],
+    "worker_session_root": "evolution/worker-home/.zany/sessions"
+  },
+  "secret_leak": "(?i)^[+-].*(key|secret|token|password)\\s*[=:]\\s*['\\\"]?[A-Za-z0-9_/+\\-]{16,}"
+}
