@@ -79,13 +79,13 @@ def list_sessions(workdir: str, limit: int = 10) -> list:
             continue
         # 展示 mtime(最后写入时间)而非会话开始时间, 和"最近活跃"排序一致
         ts = time.strftime("%m-%d %H:%M", time.localtime(f.stat().st_mtime))
-        out.append((f, ts, _last_user(msgs)[:40], len(msgs)))
+        out.append((f, ts, last_user(msgs)[:40], len(msgs)))
         if len(out) >= limit:
             break
     return out
 
 
-def _last_user(msgs: list[dict]) -> str:
+def last_user(msgs: list[dict]) -> str:
     """最后一条真实用户输入(跳过 goal 投影等注入消息), 作 resume 列表标题。"""
     for m in reversed(msgs):
         if m.get("role") != "user":

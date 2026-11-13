@@ -52,6 +52,7 @@ from core.goal import (
 
 # ---- 渲染约定(与 tui.py 同源: hermes 盒子/折叠/token 三件套 + claude 配色) ----
 REASONING_LINES = 3
+RESUME_REPLAY = 20  # resume 回放尾部消息条数(上下文全量带回, 界面只重印尾部)
 LIVE_REASONING_LINES = 3
 
 from rich.style import Style
@@ -1365,6 +1366,8 @@ class ZanyTui:
     def _turn_worker(self, msgs: list[dict]) -> None:
         """worker 线程: 只改 _seg 与 _q, 不碰终端(单写者原则)。"""
         q = self._q
+        with self._seg_lock:
+            self._inflight.clear()  # 上轮异常中断的残留在途记录不跨轮
         think_buf = text_buf = ""
         tool_t0 = {}
         think_t0 = think_last = None
@@ -1558,10 +1561,16 @@ class ZanyTui:
         tin = self.agent.usage.get("last_in") or est_tokens(
             [{"role": "system", "content": self.agent._system()}] + self.state["messages"])
         self._last_tin = tin
-        self.log_write(f"[dim]已恢复 {path.stem} ({len(self.state['messages'])} 条消息):[/dim]")
+        self.log_write(f"[dim]已恢复 {path.stem} · {len(self.state['messages'])} 条消息 · 回放最近 {min(RESUME_REPLAY, len(self.state['messages']))} 条:[/dim]")
         marks_by_at = {m["at"]: m for m in self.state["marks"]}
         msgs = self.state["messages"]
         tool_uses_by_id: dict = {}
+        for m in msgs:  # 全量收集 tool_use 供配对, 只回放尾部窗口
+            content = m.get("content")
+            if m["role"] == "assistant" and isinstance(content, list):
+                for b in content:
+                    if isinstance(b, dict) and b.get("type") == "tool_use":
+                        tool_uses_by_id[b["id"]] = (b.get("name", "?"), b.get("input", {}))
 
         def _marks_at(at: int) -> None:
             mk = marks_by_at.get(at)
@@ -1574,14 +1583,11 @@ class ZanyTui:
                 if parts:
                     self.log_write(f"[dim]{', '.join(parts)}[/dim]")
 
-        for idx, m in enumerate(msgs):
+        start = max(0, len(msgs) - RESUME_REPLAY)
+        for idx, m in enumerate(msgs[start:], start):
             content = m.get("content")
             is_tool_result = isinstance(content, list) and any(
                 isinstance(b, dict) and b.get("type") == "tool_result" for b in content)
-            if m["role"] == "assistant" and isinstance(content, list):
-                for b in content:
-                    if isinstance(b, dict) and b.get("type") == "tool_use":
-                        tool_uses_by_id[b["id"]] = (b.get("name", "?"), b.get("input", {}))
             if is_tool_result:
                 for b in content:
                     if isinstance(b, dict) and b.get("type") == "tool_result":

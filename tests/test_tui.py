@@ -202,7 +202,7 @@ def main():
     assert isinstance(picks, list) and len(picks) >= 1
     t3.do_resume(picks[0][0])
     replay = buf3.getvalue()
-    assert "已恢复" in replay and "📖" in replay
+    assert "已恢复" in replay and "📖" in replay and "回放最近" in replay  # 一行汇总 + 尾部回放
 
     # ---- /resume picker 态: ↑↓ 移高亮, esc 取消, 回车恢复(legacy 弹层同交互) ----
     t3.term.vt = True
