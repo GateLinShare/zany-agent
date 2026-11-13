@@ -10,6 +10,7 @@ thread_bound 工具保串行(恒定 worker 线程, playwright 语义)。
 
 import sys
 import threading
+import tempfile
 import time
 from pathlib import Path
 
@@ -105,3 +106,54 @@ if __name__ == "__main__":
                test_interrupt_discards_pending, test_interrupt_before_batch_skips_all):
         fn()
         print(f"{fn.__name__} 通过")
+
+
+def test_task_kill_aborts_active_subagent():
+    """task 并发补齐: kill 钩子 abort 在途子代理的流(独立 ChatModel, 不与主对话抢 _current)。"""
+    import os
+    os.environ.setdefault("ANTHROPIC_API_KEY", "test")
+    from core.subagent import make_task_tool
+
+    class BlockModel:
+        """stream 吐一个事件后阻塞, 靠 abort 立即断流收尾(模拟 SSE 长流无事件)。"""
+        def __init__(self):
+            self.aborts = 0
+            self._resume = threading.Event()
+
+        def abort(self):
+            self.aborts += 1
+            self._resume.set()
+
+        def stream(self, system, messages, schemas):
+            yield {"type": "message_start", "message": {"usage": {"input_tokens": 1}}}
+            if not self._resume.wait(5.0):
+                raise RuntimeError("子代理流没被 abort, 打断卡死 5s")
+            yield {"type": "message_delta", "usage": {"output_tokens": 1}}
+
+    bm = BlockModel()
+    tt = make_task_tool(bm, "", tempfile.mkdtemp(), [])
+    out = {}
+    th = threading.Thread(target=lambda: out.update(res=tt.run({"prompt": "hi"})))
+    th.start()
+    time.sleep(0.3)  # 等子代理进 stream 阻塞段
+    t0 = time.monotonic()
+    tt.kill()  # loop 打断路径走这里
+    th.join(5)
+    assert not th.is_alive(), "task 子代理没被 kill 及时断流"
+    assert bm.aborts == 1
+    assert "hi" in (out["res"] or "") or out["res"]  # 子代理正常收尾返回文本
+
+    # 两个并行 task: kill 一次全杀(在途集合遍历), abort 不误伤别的实例
+    outs, models = {}, [BlockModel(), BlockModel()]
+    tts = [make_task_tool(m, "", tempfile.mkdtemp(), []) for m in models]
+    ths = [threading.Thread(target=lambda i=i: outs.update(
+        {i: tts[i].run({"prompt": "x"})})) for i in range(2)]
+    for t in ths:
+        t.start()
+    time.sleep(0.3)
+    for t in tts:
+        t.kill()
+    for t in ths:
+        t.join(5)
+    assert all(m.aborts == 1 for m in models), [m.aborts for m in models]
+    assert len(outs) == 2
