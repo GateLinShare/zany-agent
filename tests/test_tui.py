@@ -323,7 +323,7 @@ def main():
         sp = tmp / "t_title.json"
         save_session(sp, [{"role": "user", "content": "帮我把日志报错归类"}], title="日志报错归类")
         assert load_session_data(sp)["title"] == "日志报错归类"
-        assert _ls(str(tmp))[0][2] == "日志报错归类"  # 列表优先展示标题
+        assert _ls(str(tmp))[0][2] == "帮我把日志报错归类"  # 列表显示最后一个用户问题
         save_session(sp, [{"role": "user", "content": "第二问"}])
         assert "title" not in load_session_data(sp)  # 无标题不写键, 旧标题不残留
         t2, _, _ = make_tui(tmp, agent=FakeAgent())

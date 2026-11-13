@@ -64,7 +64,7 @@ def _is_old_format(msgs: list) -> bool:
 
 def list_sessions(workdir: str, limit: int = 10) -> list:
     """当前工作目录的最近 limit 个会话, 按最近活跃(mtime)排序:
-    [(路径, 时间, 首条用户消息截断, 条数)]; 旧格式/别的项目的会话不在列。"""
+    [(路径, 时间, 最后一条用户消息截断, 条数)]; 旧格式/别的项目的会话不在列。"""
     out = []
     files = sorted(
         project_dir(workdir).glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True
@@ -79,20 +79,22 @@ def list_sessions(workdir: str, limit: int = 10) -> list:
             continue
         # 展示 mtime(最后写入时间)而非会话开始时间, 和"最近活跃"排序一致
         ts = time.strftime("%m-%d %H:%M", time.localtime(f.stat().st_mtime))
-        out.append((f, ts, data.get("title") or _first_user(msgs)[:40], len(msgs)))
+        out.append((f, ts, _last_user(msgs)[:40], len(msgs)))
         if len(out) >= limit:
             break
     return out
 
 
-def _first_user(msgs: list[dict]) -> str:
-    for m in msgs:
-        if m.get("role") == "user":
-            c = m.get("content", "")
-            if isinstance(c, str):
-                return c
-            return "".join(
-                b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text")
+def _last_user(msgs: list[dict]) -> str:
+    """最后一条真实用户输入(跳过 goal 投影等注入消息), 作 resume 列表标题。"""
+    for m in reversed(msgs):
+        if m.get("role") != "user":
+            continue
+        c = m.get("content", "")
+        t = c if isinstance(c, str) else "".join(
+            b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text")
+        if t.strip() and not t.lstrip().startswith("<goal "):
+            return t
     return ""
 
 
