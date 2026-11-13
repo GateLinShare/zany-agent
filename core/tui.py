@@ -1470,6 +1470,47 @@ class ZanyTui:
                 self.run_turn(continuation_prompt(g))
 
     # ---- /new / /resume / /goal ----
+    def handle_goal(self, arg: str) -> None:
+        """goal 设置并立即开跑; /goal 查看; /goal resume 恢复; /goal off 清除。"""
+        g = self.state["goal"]
+        if not arg:
+            if g:
+                self.log_write(f"[cyan]🎯 goal[{g['status']}] 第 {g['turns_used']}/{g['max_turns']} 轮: {g['objective']}[/cyan]")
+            else:
+                self.log_write("[dim]用法: /goal <目标> · /goal resume · /goal off[/dim]")
+            return
+        if arg == "off":
+            if g:
+                detach_goal(self.agent)
+                self.state["goal"] = None
+                self.log_write("[dim]🎯 goal 已清除(状态史见会话)[/dim]")
+            else:
+                self.log_write("[dim]当前没有 goal[/dim]")
+            return
+        if arg == "resume":
+            if g and g["status"] in ("paused", "blocked"):
+                g["status"] = "active"
+                g["turns_used"] = 0  # 重新给满预算
+                self.log_write(f"[cyan]🎯 goal 已恢复, 预算重置为 {g['max_turns']} 轮: {g['objective']}[/cyan]")
+            else:
+                self.log_write("[dim]没有可恢复的 paused/blocked goal[/dim]")
+            return
+        if self.busy:
+            self.log_write("[dim]当前轮还在跑, 等它结束再设 goal[/dim]")
+            return
+        if g:
+            detach_goal(self.agent)  # 覆盖旧 goal
+        self.state["goal"] = {
+            "objective": arg,
+            "status": "active",
+            "turns_used": 1,
+            "max_turns": GOAL_MAX_TURNS,
+        }
+        attach_goal(self.agent, self.state["goal"])
+        self.log_write(f"[cyan]🎯 goal 已设定(预算 {GOAL_MAX_TURNS} 轮, /goal off 取消): {arg}[/cyan]")
+        self.chat_line("user", f"/goal {arg}")
+        self.run_turn(continuation_prompt(self.state["goal"]))
+
     def new_chat(self) -> None:
         self.state["messages"] = []
         self.state["marks"] = []
