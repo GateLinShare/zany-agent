@@ -209,6 +209,7 @@ SNAP_SCHEMA = {
 def browser_tools() -> list:
     from core.tools import Tool
 
+    # ponytail: playwright sync 对象线程绑定, 三个工具都标 thread_bound 走单 worker 串行
     return [
         Tool(
             "browser_navigate",
@@ -216,18 +217,21 @@ def browser_tools() -> list:
             "JS 渲染页、需登录/点击才能拿的内容用它; 纯静态抓取用 execute curl 更快。",
             {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]},
             _navigate,
+            thread_bound=True,
         ),
         Tool(
             "browser_click",
             "点击快照里的元素(eN), 返回点击后的新快照。",
             SNAP_SCHEMA,
             _click,
+            thread_bound=True,
         ),
         Tool(
             "browser_type",
             "向快照里的输入框(eN)输入文本; submit=true 时回车提交(搜索/登录)。返回新快照。",
             SNAP_SCHEMA,
             _type,
+            thread_bound=True,
         ),
     ]
 
