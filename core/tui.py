@@ -98,11 +98,9 @@ PASTE_WINDOW = 0.02  # 无标记粘贴启发式: Enter 后此窗内还有输入�
 
 
 def _clip(s: str, n: int = CMD_CLIP) -> str:
-    from rich.cells import cell_len
-
-    if cell_len(s) <= n:
+    if cells(s) <= n:
         return s
-    while s and cell_len(s + "…") > n:
+    while s and cells(s + "…") > n:
         s = s[:-1]
     return s + "…"
 
@@ -292,8 +290,20 @@ if _cols:
 
 
 def cells(s: str) -> int:
-    from rich.cells import cell_len
-    return cell_len(s)
+    """显示宽。rich.cell_len 把 East Asian Ambiguous(— “ ” – ·)按半宽算, 中文终端
+    (JetBrains/CJK 字体)按全宽画 → 帧行真实宽被低估 → 终端自行折行 → 帧高失配,
+    擦帧欠擦, 每次重绘漏顶部残帧进滚动区(2026-11-16 忙时刷屏根因)。
+    这里 A 区一律按 2 计: 低估破帧, 高估只费几格。例外: box drawing(U+2500-257F)
+    各家终端恒窄(帧边框靠它, 必须按半宽), 其余 A 区仅影响超宽文本截断点, 无害。"""
+    import unicodedata
+    n = 0
+    for ch in s:
+        if unicodedata.combining(ch):
+            continue
+        e = unicodedata.east_asian_width(ch)
+        wide = e in ("W", "F") or (e == "A" and not 0x2500 <= ord(ch) <= 0x257F)
+        n += 2 if wide else 1
+    return n
 
 
 def _split_width(s: str, width: int) -> list[str]:
