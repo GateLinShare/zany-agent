@@ -904,6 +904,8 @@ class ZanyTui:
         self.hist_draft = ""
         self._frame_rows = 0
         self._park_down = 0  # 光标定位进输入框后, 回到帧底空行需下移的行数(擦帧凭它归位)
+        self._last_rows: list[str] | None = None  # 上帧内容: 忙时 10Hz 醒, 没变就不重写
+        self._last_cur: tuple[int, int] | None = None  # 光标逻辑位同帧一起跳过: 帧同位不同也要重定位
         self._dirty = True
         self._turn_t0 = None
         self._verb = 0
@@ -970,13 +972,24 @@ class ZanyTui:
             time.sleep(60)
 
     # ---- 烙定区打印(仅主循环调用; 打印前擦掉活动区) ----
-    def _erase_frame(self) -> None:
+    def _erase_seq(self) -> str:
+        """擦活动区的 ANSI 序列(只拼不写)。_render_frame 会把它和帧体并进
+        同一次 write —— 拆开写经 SSH 会落进不同 TCP 段, 终端画出"擦空→重写"
+        中间态(远端终端逐键闪烁的根因; 本地终端无延迟合并渲染看不出来)。"""
         if self.term.vt and self._frame_rows:
             # 光标可能停在上帧定位的输入行内: 先下移回帧底(用记录值, 不依赖当前 ed 状态),
             # 再上移帧高擦除。直接 ESC[{R}A 会从输入行起算 → 每次重绘净上浮一行(啃掉烙定区)。
-            self.term.write(f"{ESC}[{self._park_down}B\r{ESC}[{self._frame_rows}A{ESC}[J")
+            return f"{ESC}[{self._park_down}B\r{ESC}[{self._frame_rows}A{ESC}[J"
+        return ""
+
+    def _erase_frame(self) -> None:
+        seq = self._erase_seq()
+        if seq:
+            self.term.write(seq)
         self._frame_rows = 0
         self._park_down = 0
+        self._last_rows = None
+        self._last_cur = None
 
     def log_write(self, text: str) -> None:
         self._erase_frame()
@@ -1063,10 +1076,19 @@ class ZanyTui:
         filled = round(pct / 100 * 10)
         tin_bar = f"{cc}{'█' * filled}{'░' * (10 - filled)}{C_RESET} {C_DIM}{fmt_tokens(self._last_tin)}/{fmt_tokens(ctx_max)} · {pct}%{C_RESET}"
         rows.append(f" {hint}{C_DIM} · {tin_bar}{C_RESET}")
-        # 重绘
-        self._erase_frame()
-        self.term.write("\n".join(rows) + "\n")
+        # 重绘。两层防闪(远端/低配终端, MobaXterm 实测):
+        # 1) 内容没变就不写 —— 忙时主循环 10Hz 醒, 只有秒数/tok 变了才值得重画;
+        # 2) 要写就把 擦+帧体+光标落位 并成一次 write(单 flush, SSH 不拆包),
+        #    光标藏→画→落位→显, 不让终端看到中间态; ?2026 同步更新让支持的
+        #    终端(VTE/kitty/新 PuTTY 系)整帧原子呈现, 不支持的当未知序列忽略。
+        if rows == self._last_rows and (self.ed.cy, self.ed.cx) == self._last_cur \
+                and self._frame_rows:
+            return
+        self._last_rows = rows
+        self._last_cur = (self.ed.cy, self.ed.cx)
+        erase = self._erase_seq()
         self._frame_rows = len(rows)
+        body = "\n".join(rows) + "\n"
         if self.term.vt:
             # 光标逻辑位(cy,cx) → 视觉行: 贪心折行对前缀一致, 用前缀折行数定位
             pre = _split_width(self.ed.lines[self.ed.cy][:self.ed.cx], w - 2)
@@ -1075,8 +1097,12 @@ class ZanyTui:
                 + len(chunks_per_line[self.ed.cy]) - 1 - row_in + 2  # 后续输入行 + 底边线 + 工具条
             up = rows_below + 1  # 帧尾写完带 \n(光标在工具条下一空行)
             col = 2 + cells(pre[-1])  # "> " 前缀 2 格
-            self.term.write(f"{ESC}[{up}A{ESC}[{col + 1}G")
             self._park_down = up  # 下次擦帧先原路下移回来, 防重绘整体上浮
+            self.term.write(
+                f"{ESC}[?2026h{ESC}[?25l" + erase + body
+                + f"{ESC}[{up}A{ESC}[{col + 1}G{ESC}[?25h{ESC}[?2026l")
+        else:
+            self.term.write(erase + body)
 
     # ---- 键处理 ----
     def _on_key(self, key: str) -> None:
