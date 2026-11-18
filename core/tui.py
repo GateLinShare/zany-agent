@@ -294,14 +294,18 @@ def cells(s: str) -> int:
     (JetBrains/CJK 字体)按全宽画 → 帧行真实宽被低估 → 终端自行折行 → 帧高失配,
     擦帧欠擦, 每次重绘漏顶部残帧进滚动区(2026-11-16 忙时刷屏根因)。
     这里 A 区一律按 2 计: 低估破帧, 高估只费几格。例外: box drawing(U+2500-257F)
-    各家终端恒窄(帧边框靠它, 必须按半宽), 其余 A 区仅影响超宽文本截断点, 无害。"""
+    各家终端恒窄(帧边框靠它, 必须按半宽), 其余 A 区仅影响超宽文本截断点, 无害。
+    ZANY_AMBIGUOUS_WIDE=1(web 终端+中文字体, scloud xterm.js 实测破例): box drawing
+    也被渲染成全角 → 对齐 claude-code 口径(ambiguousIsNarrow:false), A 区含 box
+    drawing 全按 2; 边框行相应画 w//2 个 ─ 保持满宽。"""
     import unicodedata
+    ambig_wide = os.environ.get("ZANY_AMBIGUOUS_WIDE", "") == "1"
     n = 0
     for ch in s:
         if unicodedata.combining(ch):
             continue
         e = unicodedata.east_asian_width(ch)
-        wide = e in ("W", "F") or (e == "A" and not 0x2500 <= ord(ch) <= 0x257F)
+        wide = e in ("W", "F") or (e == "A" and (ambig_wide or not 0x2500 <= ord(ch) <= 0x257F))
         n += 2 if wide else 1
     return n
 
@@ -1066,13 +1070,15 @@ class ZanyTui:
                 rows.append(f"{mark}{style}{i + 1}. {ts}  ({n} 条)  {one}{C_RESET}")
             rows.append(f"{C_DIM}↑↓ 选择 · 回车恢复 · esc 取消{C_RESET}")
         # 输入区: 上下两条线无侧边(claude 同款), 逻辑行按宽折成视觉行
+        # ambiguous-wide 终端下 ─ 渲染 2 格, 画 w//2 个保持满宽
+        border = "─" * (w // 2 if os.environ.get("ZANY_AMBIGUOUS_WIDE", "") == "1" else w)
         chunks_per_line = [_split_width(l, w - 2) for l in self.ed.lines]
-        rows.append(f"{C_BORDER}{'─' * w}{C_RESET}")
+        rows.append(f"{C_BORDER}{border}{C_RESET}")
         for li, chunks in enumerate(chunks_per_line):
             for ci, chunk in enumerate(chunks):
                 mark = f"{C_TEXT}>{C_RESET} " if (li == 0 and ci == 0) else "  "
                 rows.append(f"{mark}{chunk}{C_RESET}")
-        rows.append(f"{C_BORDER}{'─' * w}{C_RESET}")
+        rows.append(f"{C_BORDER}{border}{C_RESET}")
         # 工具条
         if self._exit_pending and time.monotonic() - self._exit_pending <= EXIT_WINDOW:
             hint = f"{C_WARN}» 再按一次 ctrl+c 退出{C_RESET}"

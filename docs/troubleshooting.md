@@ -77,3 +77,15 @@
 **修复**(`tui.py` `_read_key_win` 扩展键分支): 前缀后**当场补取**第二段 `self._pend = p + msvcrt.getwch()` —— 第二段在 getwch 内部缓存命中, 不读新记录不阻塞。"分两段的东西不能留到下圈"是这类缓存拼凑的通用坑: 下圈的入口条件(pend 非空不读)和上一圈的出口条件(不完整先还回去)互相顶死。
 
 **教训**: ① GUI 终端(PyCharm/ConPTY)读键问题必须可复现再修 —— ConPTY harness 让"猜终端行为"变成"跑一遍看探针", 修前修后都能机器验证; ② msvcrt.getwch 对功能键是"前缀+键码"两段调用, 第二段藏在内部缓存, PeekConsoleInput 看不到它, 任何"等下一圈"的凑齐逻辑都会死锁; ③ 落盘探针(ZANY_TUI_TRACE, env 门控零开销)是穿透 GUI 终端迷雾的标准手段, 比 print 到 stderr 可靠(合成终端的 stderr 也可能被吞)。
+
+## 2026-11-18 scloud web 终端跑 zany TUI 重绘残影（调研后拍板不修）
+
+**现象**: frozen zany 部署进 scloud k8s pod(web 终端 xterm.js + 中文字体)后, 打字/重绘时输入区上方残留横杠 —— 输入框上下边框线(`─`*w)的旧帧没擦干净, 越积越多。功能正常, 纯观感问题。
+
+**根因**: 底部活动区整帧重绘靠"逻辑行数记账"(`_frame_rows`), 赌"一行字符串 = 终端一行"。边框行 `'─' * w` 恰满列宽, 但 `─`(U+2500, East Asian Ambiguous)的渲染宽度取决于终端字体 fallback: 本地/MobaXterm 渲染半宽(cells 按 1 对), scloud 中文字体渲染全宽 → 边框行实占 2w → 终端硬折行 → 物理行数 > 记账 → 擦帧欠擦 → 残影累积。busy 时 spinner/打字每秒触发重绘, 残影堆得最快。
+
+**claude-code 参照**(逆向 chunk-bzr73sfg.js 等): 它一个口径 `Bun.stringWidth(text, {ambiguousIsNarrow: false})` 通吃两端, 外加 `\p{Emoji}/\p{Cn}` 码点强制按 2。能一刀切的关键不在宽度准, 而在渲染架构: ink 输出前**自己 wrap/裁剪每行到列宽以内**, 擦除按实际写出的物理行记账 —— 宽度误差只损失观感(折行点提前/行尾留白), 永不产生账外行, 帧不破。zany 的活动区是"拼接逻辑行 + 行数记账", 折行交给终端, 宽度必须与终端渲染分毫不差, 而两边终端口径相反且探测不到(字体 fallback 不反映在任何环境变量)。
+
+**决策**(用户拍板, 2026-11-18): **不修**。scloud 场景能用, 残影不影响功能。若将来要修, 两条路: ① `.env` 开关(如 ZANY_AMBIGUOUS_WIDE=1)切 A 区口径含 box drawing + 边框画 w//2 个 ─, 一份二进制通吃两类终端, 10 行内改完; ② 学 claude 重构活动区渲染(自折行 + 物理行记账), 根治但大动。宽度口径的原则两边一致: 宁可高估(高估只费几格), 低估必破帧。
+
+**规避**: scloud 终端字体切成纯英文等宽字体(Consolas/JetBrains Mono), ambiguous 字符回落半宽渲染, 残影消失 —— 反向验证了根因。
