@@ -2,9 +2,10 @@
 # 非 bash 调用(sh/dash)转交 bash 重跑: 本脚本用 pipefail 等 bash 语法
 [ -n "$BASH_VERSION" ] || exec bash "$0" "$@"
 # 把构建好的二进制装进系统 PATH(zany 命令)。会覆盖 deploy.sh 装的源码版 zany。
-# 用法: release/install.sh [二进制路径]   无参 = 自动按当前平台找 release/dist/zany-<target>
+# 用法: release/install.sh [二进制路径]   无参 = 先找脚本同目录 zany-<target>(独立部署), 再找 release/dist/zany-<target>
 set -euo pipefail
-cd "$(dirname "$0")/.."
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR/.."
 
 case "$(uname -s)-$(uname -m)" in
   Linux-x86_64)  TARGET=linux-x64 ;;
@@ -12,7 +13,10 @@ case "$(uname -s)-$(uname -m)" in
   MINGW*|MSYS*|CYGWIN*) echo "Windows 用 release/install.ps1 (PowerShell)" >&2; exit 1 ;;
   *) TARGET=$(echo "$(uname -s)-$(uname -m)" | tr 'A-Z_' 'a-z-') ;;
 esac
-BIN="${1:-release/dist/zany-$TARGET}"
+# 解析顺序: 显式参数 > 脚本同目录(独立部署) > 仓库布局 release/dist/
+BIN="${1:-}"
+[ -n "$BIN" ] || BIN="$SCRIPT_DIR/zany-$TARGET"
+[ -f "$BIN" ] || BIN="release/dist/zany-$TARGET"
 [ -f "$BIN" ] || { echo "找不到 $BIN, 先跑 release/build.sh" >&2; exit 1; }
 
 PREV=$(command -v zany || true)
