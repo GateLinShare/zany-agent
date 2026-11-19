@@ -14,6 +14,7 @@
 """
 
 import base64
+import difflib
 import os
 import signal
 import subprocess
@@ -177,6 +178,21 @@ def _fuzzy(text: str) -> str:
     return "\n".join(line.rstrip() for line in t.split("\n"))
 
 
+def _nearest(text: str, old: str) -> str:
+    """old_string 失配时找文件里最接近的原文行, 附进报错给模型自我纠正的锚。"""
+    t_lines = text.splitlines()
+    k = max(1, len(old.splitlines()))
+    best_i, best_r = -1, 0.0
+    for i in range(len(t_lines) - k + 1):
+        r = difflib.SequenceMatcher(None, old, "\n".join(t_lines[i:i + k])).ratio()
+        if r > best_r:
+            best_i, best_r = i, r
+    if best_i < 0 or best_r < 0.5:
+        return ""
+    loc = f"行 {best_i + 1}" if k == 1 else f"行 {best_i + 1}-{best_i + k}"
+    return f"\n最接近的原文[{loc}, 相似度 {best_r:.0%}]: " + "\n".join(t_lines[best_i:best_i + k])[:300]
+
+
 def _overlay(original: str, base: str, spans: list) -> str:
     """模糊命中后的回写: 只有替换覆盖到的行取归一化文本, 其余行保留原字节。"""
     o_lines = original.splitlines(keepends=True)
@@ -278,7 +294,8 @@ def _edit(workdir, args, ledger) -> str:
             old = _fuzzy(e["old_string"])
             n = ntext.count(old)
             if n != 1:
-                return fail(f"edits[{i}] 在 {args['path']} 中精确/模糊均未唯一匹配(模糊 {n} 处)")
+                hint = _nearest(text, e["old_string"]) if n == 0 else ""
+                return fail(f"edits[{i}] 在 {args['path']} 中精确/模糊均未唯一匹配(模糊 {n} 处){hint}")
             spans.append((ntext.index(old), len(old), _fuzzy(e["new_string"])))
 
     spans.sort()
